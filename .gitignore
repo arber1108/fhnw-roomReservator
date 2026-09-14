@@ -2,4 +2,6 @@ node_modules/
 dist/
 *.js
 !src/**
+!bin/
+!bin/roomreserve.js
 .env

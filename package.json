@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "FHNW Room Reservation TUI",
   "main": "dist/index.js",
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
   "bin": {
     "roomreserve": "./bin/roomreserve.js"
   },
@@ -11,6 +16,7 @@
     "login": "tsx src/index.ts --login",
     "discover": "tsx src/index.ts --discover",
     "build": "tsc",
+    "prepack": "npm run build",
     "dev": "tsx watch src/index.ts",
     "sniff": "tsx src/sniff.ts"
   },

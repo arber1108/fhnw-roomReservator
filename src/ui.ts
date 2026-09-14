@@ -1,4 +1,4 @@
-import { select, input, confirm } from "@inquirer/prompts";
+import { select as inquirerSelect, input, confirm } from "@inquirer/prompts";
 import Table from "cli-table3";
 import dayjs from "dayjs";
 import { SITES } from "./locations.js";
@@ -7,6 +7,53 @@ import type { AvailableRoom, Reservation, Site } from "./types.js";
 type Action = "reserve" | "my-reservations" | "exit";
 
 type EndParseResult = { end: Date } | { error: string };
+
+type SelectChoice<Value> =
+  | Value
+  | {
+      value: Value;
+      name?: string;
+      description?: string;
+      short?: string;
+      disabled?: boolean | string;
+    };
+
+type SelectConfig<Value> = {
+  message: string;
+  choices: ReadonlyArray<SelectChoice<Value>>;
+  pageSize?: number;
+  loop?: boolean;
+  default?: Value;
+};
+
+/** Adds W/S navigation to Inquirer's select prompt without changing text inputs. */
+async function select<Value>(config: SelectConfig<Value>): Promise<Value> {
+  const mapWsToArrows = (
+    _character: string | undefined,
+    key: { name?: string }
+  ): void => {
+    if (key.name !== "w" && key.name !== "s") return;
+
+    process.stdin.emit("keypress", undefined, {
+      ...key,
+      name: key.name === "w" ? "up" : "down",
+    });
+  };
+
+  process.stdin.prependListener("keypress", mapWsToArrows);
+  try {
+    return await inquirerSelect({
+      ...config,
+      theme: {
+        style: {
+          keysHelpTip: () => "↑↓ / w s navigate • ⏎ select",
+        },
+      },
+    });
+  } finally {
+    process.stdin.removeListener("keypress", mapWsToArrows);
+  }
+}
 
 function parseEndTimeOrDuration(value: string, start: Date): EndParseResult {
   const input = value.trim();

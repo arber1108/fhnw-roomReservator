@@ -1,0 +1,245 @@
+import { select, input, confirm } from "@inquirer/prompts";
+import Table from "cli-table3";
+import dayjs from "dayjs";
+import { SITES } from "./locations.js";
+import type { AvailableRoom, Reservation, Site } from "./types.js";
+
+type Action = "reserve" | "my-reservations" | "exit";
+
+export async function selectAction(): Promise<Action> {
+  return select({
+    message: "What do you want to do?",
+    choices: [
+      { name: "Reserve a room", value: "reserve" as const },
+      { name: "My reservations", value: "my-reservations" as const },
+      { name: "Exit", value: "exit" as const },
+    ],
+  });
+}
+
+export async function selectSite(): Promise<Site> {
+  const siteId = await select({
+    message: "Select campus:",
+    choices: SITES.map((s) => ({
+      name: s.name,
+      value: s.id,
+    })),
+  });
+  return SITES.find((s) => s.id === siteId)!;
+}
+
+export async function getTimeRange(): Promise<{
+  fromUnix: number;
+  toUnix: number;
+  fromISO: string;
+  toISO: string;
+}> {
+  const dateStr = await input({
+    message: "Date (DD.MM.YYYY):",
+    default: dayjs().format("DD.MM.YYYY"),
+    validate: (val) => {
+      if (!/^\d{2}\.\d{2}\.\d{4}$/.test(val)) return "Use DD.MM.YYYY format";
+      const p = val.split(".").map(Number);
+      const d = new Date(p[2]!, p[1]! - 1, p[0]!);
+      if (isNaN(d.getTime())) return "Invalid date";
+      return true;
+    },
+  });
+
+  const timeStr = await input({
+    message: "Start time (HH:mm):",
+    default: dayjs().add(1, "hour").startOf("hour").format("HH:mm"),
+    validate: (val) => {
+      if (!/^\d{2}:\d{2}$/.test(val)) return "Use HH:mm format";
+      const p = val.split(":").map(Number);
+      if (p[0]! < 0 || p[0]! > 23 || p[1]! < 0 || p[1]! > 59) return "Invalid time";
+      return true;
+    },
+  });
+
+  const durationStr = await input({
+    message: "Duration (hours):",
+    default: "1",
+    validate: (val) => {
+      const n = parseFloat(val);
+      if (isNaN(n) || n <= 0 || n > 16) return "Enter 0–16 hours";
+      return true;
+    },
+  });
+
+  const dp = dateStr.split(".").map(Number);
+  const tp = timeStr.split(":").map(Number);
+  const start = new Date(dp[2]!, dp[1]! - 1, dp[0]!, tp[0]!, tp[1]!);
+  const end = new Date(start.getTime() + parseFloat(durationStr) * 3600_000);
+
+  return {
+    fromUnix: Math.floor(start.getTime() / 1000),
+    toUnix: Math.floor(end.getTime() / 1000),
+    fromISO: start.toISOString(),
+    toISO: end.toISOString(),
+  };
+}
+
+export function displayRooms(rooms: AvailableRoom[], fromUnix: number, toUnix: number): void {
+  if (rooms.length === 0) {
+    console.log("\n  No rooms available for this time slot.\n");
+    return;
+  }
+
+  const fromStr = dayjs.unix(fromUnix).format("DD.MM.YYYY HH:mm");
+  const toStr = dayjs.unix(toUnix).format("HH:mm");
+  console.log(`\n  ${rooms.length} rooms available (${fromStr} – ${toStr}):\n`);
+
+  const table = new Table({
+    head: ["#", "Room", "Building", "Floor", "Capacity", "Type"],
+    style: { head: ["cyan"] },
+    colWidths: [5, 12, 16, 10, 10, 22],
+  });
+
+  rooms.forEach((r, i) => {
+    table.push([
+      i + 1,
+      r.Room,
+      r.Building,
+      r.Floor,
+      r.NumberPersons,
+      r.RoomType,
+    ]);
+  });
+
+  console.log(table.toString());
+  console.log();
+}
+
+export async function selectRoom(rooms: AvailableRoom[]): Promise<AvailableRoom | null> {
+  if (rooms.length === 0) return null;
+
+  const roomId = await select({
+    message: "Select room:",
+    choices: [
+      ...rooms.map((r, i) => ({
+        name: `${(i + 1).toString().padStart(2)}. ${r.Room}  (${r.Building}, ${r.Floor}, ${r.NumberPersons} Pl.)`,
+        value: r.RoomId,
+      })),
+      { name: "   Cancel", value: -1 },
+    ],
+  });
+
+  if (roomId === -1) return null;
+  return rooms.find((r) => r.RoomId === roomId) ?? null;
+}
+
+export async function getReservationDetails(): Promise<{ title: string; numPersons: string }> {
+  const title = await input({
+    message: "Reservation title:",
+    default: "Gruppenarbeit",
+  });
+  const numPersons = await input({
+    message: "Number of persons:",
+    default: "1",
+  });
+  return { title, numPersons };
+}
+
+export async function confirmReservation(
+  room: AvailableRoom,
+  fromUnix: number,
+  toUnix: number,
+  title: string,
+  numPersons: string
+): Promise<boolean> {
+  const fromStr = dayjs.unix(fromUnix).format("DD.MM.YYYY HH:mm");
+  const toStr = dayjs.unix(toUnix).format("HH:mm");
+
+  console.log();
+  console.log("  ┌─ Reservation ──────────────────────────");
+  console.log(`  │ Room:     ${room.Room} (${room.Building}, ${room.Floor})`);
+  console.log(`  │ Time:     ${fromStr} – ${toStr}`);
+  console.log(`  │ Title:    ${title}`);
+  console.log(`  │ Persons:  ${numPersons}`);
+  console.log("  └─────────────────────────────────────────");
+  console.log();
+
+  return confirm({ message: "Confirm?" });
+}
+
+export function displayReservations(reservations: Reservation[]): void {
+  if (reservations.length === 0) {
+    console.log("\n  No upcoming reservations.\n");
+    return;
+  }
+
+  console.log(`\n  ${reservations.length} upcoming reservation(s):\n`);
+
+  const table = new Table({
+    head: ["#", "Room", "Date", "Time", "Title", "Status"],
+    style: { head: ["cyan"] },
+  });
+
+  reservations.forEach((r, i) => {
+    const occ = r.Occupancies?.[0];
+    const from = occ ? dayjs(occ.DateTimeFrom).format("DD.MM.YYYY") : "–";
+    const time = occ
+      ? `${dayjs(occ.DateTimeFrom).format("HH:mm")} – ${dayjs(occ.DateTimeTo).format("HH:mm")}`
+      : "–";
+
+    table.push([
+      i + 1,
+      r.Resource,
+      from,
+      time,
+      r.Designation,
+      r.Status,
+    ]);
+  });
+
+  console.log(table.toString());
+  console.log();
+}
+
+export async function selectReservationToCancel(
+  reservations: Reservation[]
+): Promise<Reservation | null> {
+  const cancelable = reservations.filter((r) => r.IsCancelable);
+  if (cancelable.length === 0) {
+    console.log("  No cancelable reservations.\n");
+    return null;
+  }
+
+  const id = await select({
+    message: "Select reservation to cancel:",
+    choices: [
+      ...cancelable.map((r, i) => {
+        const occ = r.Occupancies?.[0];
+        const when = occ
+          ? `${dayjs(occ.DateTimeFrom).format("DD.MM. HH:mm")}–${dayjs(occ.DateTimeTo).format("HH:mm")}`
+          : "";
+        return {
+          name: `${(i + 1).toString().padStart(2)}. ${r.Resource}  ${when}  "${r.Designation}"`,
+          value: r.ReservationId,
+        };
+      }),
+      { name: "   Back", value: -1 },
+    ],
+  });
+
+  if (id === -1) return null;
+  return cancelable.find((r) => r.ReservationId === id) ?? null;
+}
+
+export async function confirmCancel(reservation: Reservation): Promise<boolean> {
+  const occ = reservation.Occupancies?.[0];
+  const when = occ
+    ? `${dayjs(occ.DateTimeFrom).format("DD.MM.YYYY HH:mm")} – ${dayjs(occ.DateTimeTo).format("HH:mm")}`
+    : "";
+
+  console.log();
+  console.log("  ┌─ Cancel Reservation ────────────────────");
+  console.log(`  │ Room:   ${reservation.Resource}`);
+  console.log(`  │ Time:   ${when}`);
+  console.log(`  │ Title:  ${reservation.Designation}`);
+  console.log("  └─────────────────────────────────────────");
+  console.log();
+
+  return confirm({ message: "Cancel this reservation?", default: false });
+}

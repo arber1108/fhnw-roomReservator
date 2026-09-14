@@ -1,0 +1,33 @@
+{
+  "name": "roomreservator",
+  "version": "1.0.0",
+  "description": "FHNW Room Reservation TUI",
+  "main": "dist/index.js",
+  "bin": {
+    "roomreserve": "./bin/roomreserve.js"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "login": "tsx src/index.ts --login",
+    "discover": "tsx src/index.ts --discover",
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "sniff": "tsx src/sniff.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@inquirer/prompts": "^8.7.2",
+    "@types/node": "^26.5.1",
+    "chalk": "^4.1.2",
+    "cli-table3": "^0.6.5",
+    "dayjs": "^1.11.23",
+    "dotenv": "^17.4.2",
+    "ora": "^6.3.1",
+    "playwright": "^1.63.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

@@ -104,3 +104,19 @@ Reservation creation and cancellation target the live FHNW service. Preserve con
 - Keep destructive operations explicit and confirmed by the user.
 - Add tests around pure parsing/filtering/mapping code when extracting it from interactive flows. Useful first targets are date parsing, availability filtering, JWT person-ID extraction, and reservation rendering.
 - If adding a distributable CLI, create and test the declared `bin/roomreserve.js` launcher and align the README, package scripts, and installation instructions in the same change.
+
+## Commit messages
+
+Use Conventional Commits:
+
+```text
+<type>(<optional scope>): <summary>
+
+<optional short body explaining what changed and why>
+```
+
+- The first line (summary) must be lowercase, imperative, and at most 50 characters.
+- Use a blank line before a body.
+- Add a short body for non-trivial changes, explaining what changed and why.
+- Prefer `feat`, `fix`, `refactor`, `test`, `docs`, `build`, or `chore`.
+- Use scopes only when useful, for example `ui`, `api`, or `auth`.

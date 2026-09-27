@@ -12,6 +12,9 @@ An interactive command-line application for FHNW students and staff to find, res
 
 Clone or download this repository, then open a terminal in its folder.
 
+> [!TIP]
+> You can use an AI agent (like Claude or ChatGPT) after completing authentication and ask them to do a booking for you at a given location, time, day, and for how many people.
+
 ### Windows PowerShell
 
 ```powershell

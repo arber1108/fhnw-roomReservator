@@ -70,12 +70,10 @@ export async function createReservation(
     throw new Error(`Reservation failed (${res.status}): ${text}`);
   }
 
-  // POST returns 201 with empty body — fetch the reservation to get details
-  const location = res.headers.get("location");
-  if (location) {
-    const detailRes = await apiFetch(auth, location.replace(BASE, "").replace("https://eviapi.fhnw.ch/Evento/api2", ""));
-    if (detailRes.ok) return detailRes.json() as Promise<Reservation>;
-  }
+  // The POST already succeeded, so lookup errors must not propagate: an
+  // AUTH_EXPIRED here would make withAuth() retry and book the room twice.
+  const created = await findCreatedReservation(auth, res, roomId, fromISO).catch(() => null);
+  if (created) return created;
 
   return {
     ReservationId: 0,
@@ -86,6 +84,36 @@ export async function createReservation(
     StatusRemark: "Reservation created",
     IsCancelable: true,
   };
+}
+
+async function findCreatedReservation(
+  auth: AuthState,
+  postRes: Response,
+  roomId: number,
+  fromISO: string
+): Promise<Reservation | null> {
+  // POST returns 201 with empty body — follow the Location header if present.
+  // It may be relative (like the API's HRef fields), so resolve it against BASE.
+  const location = postRes.headers.get("location");
+  if (location) {
+    const detailRes = await apiFetch(auth, new URL(location, BASE).href.replace(BASE, ""));
+    if (detailRes.ok) return detailRes.json() as Promise<Reservation>;
+  }
+
+  // Otherwise find it among the user's reservations. DateTimeFrom has no UTC
+  // offset, so Date parses it as local time, like the start the user entered.
+  const start = new Date(fromISO).getTime();
+  const matches = (await fetchMyReservations(auth)).filter(
+    (r) =>
+      r.ResourceId === roomId &&
+      r.Status !== "Storniert" &&
+      r.Occupancies?.some((o) => new Date(o.DateTimeFrom).getTime() === start)
+  );
+  // A cancelled-and-rebooked slot can still match twice; the newest ID is ours.
+  return matches.reduce<Reservation | null>(
+    (newest, r) => (!newest || r.ReservationId > newest.ReservationId ? r : newest),
+    null
+  );
 }
 
 export async function cancelReservation(auth: AuthState, reservationId: number): Promise<void> {

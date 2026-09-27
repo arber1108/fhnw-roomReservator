@@ -5,3 +5,4 @@ dist/
 !bin/
 !bin/roomreserve.js
 .env
+.DS_Store

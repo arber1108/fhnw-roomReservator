@@ -1,4 +1,5 @@
 import { authenticate } from "./auth.js";
+import dayjs from "dayjs";
 import { fetchAvailableRooms, createReservation, fetchMyReservations, cancelReservation } from "./api.js";
 import {
   selectAction,
@@ -17,6 +18,7 @@ import {
   promptContact,
   selectContactToRemove,
   selectContactsToNotify,
+  selectBookingsToShare,
 } from "./ui.js";
 import {
   loadNotifySettings,
@@ -26,7 +28,9 @@ import {
   buildTeamsChatLink,
   openUrl,
 } from "./notify.js";
-import type { AuthState, BookingNotice } from "./types.js";
+import type { AuthState, BookingNotice, Reservation } from "./types.js";
+
+const CONFIRMED_STATUS = "Bestätigt";
 
 async function withAuth<T>(
   auth: AuthState,
@@ -191,6 +195,48 @@ async function myReservationsFlow(auth: AuthState): Promise<AuthState> {
   return a2;
 }
 
+function toBookingNotice(r: Reservation): BookingNotice | null {
+  const occ = r.Occupancies?.[0];
+  if (!occ) return null;
+  return {
+    room: r.Resource,
+    from: new Date(occ.DateTimeFrom),
+    to: new Date(occ.DateTimeTo),
+    title: r.Designation,
+    numPersons: r.FurtherInformation ?? "",
+    reservationId: r.ReservationId,
+  };
+}
+
+/** Re-posts today's and tomorrow's confirmed bookings that haven't ended yet. */
+async function shareBookingsFlow(auth: AuthState, pickBookings: boolean): Promise<AuthState> {
+  console.log("\n  Loading today's and tomorrow's bookings...");
+  // Query from midnight so bookings that are already running are included.
+  const startOfToday = dayjs().startOf("day").unix();
+  const { result: reservations, auth: a1 } = await withAuth(auth, (a) =>
+    fetchMyReservations(a, startOfToday)
+  );
+
+  const now = new Date();
+  const endOfTomorrow = dayjs().add(1, "day").endOf("day").toDate();
+  const current = reservations
+    .filter((r) => r.Status === CONFIRMED_STATUS)
+    .map(toBookingNotice)
+    .filter((b): b is BookingNotice => b !== null && b.to > now && b.from <= endOfTomorrow)
+    .sort((a, b) => a.from.getTime() - b.from.getTime());
+
+  if (current.length === 0) {
+    console.log("  No confirmed bookings left for today or tomorrow.\n");
+    return a1;
+  }
+
+  const chosen = pickBookings ? await selectBookingsToShare(current) : current;
+  if (chosen.length === 0) return a1;
+
+  await shareToTeams(chosen.length === 1 ? "Our booking" : "Our bookings", chosen.map(formatBookingLines));
+  return a1;
+}
+
 async function main() {
   console.log("\n  FHNW Room Reservator\n  ────────────────────\n");
 
@@ -201,6 +247,11 @@ async function main() {
 
   let auth = await authenticate();
 
+  if (process.argv.includes("--share")) {
+    await shareBookingsFlow(auth, false);
+    return;
+  }
+
   while (true) {
     try {
       const action = await selectAction();
@@ -208,6 +259,7 @@ async function main() {
       if (action === "exit") break;
       if (action === "reserve") auth = await reserveFlow(auth);
       if (action === "my-reservations") auth = await myReservationsFlow(auth);
+      if (action === "share") auth = await shareBookingsFlow(auth, true);
       if (action === "notifications") await notificationSettingsFlow();
     } catch (err: any) {
       if (err.message?.includes("force closed") || err.message?.includes("ExitPrompt")) break;

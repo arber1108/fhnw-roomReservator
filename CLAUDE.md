@@ -15,18 +15,19 @@ npm start          # run the interactive CLI via tsx
 npm run login      # force browser login and refresh saved auth
 npm run dev        # tsx watch mode
 npm run build      # tsc type-check + compile src/ → dist/ (the only automated check)
+npm run share      # post today's/tomorrow's confirmed bookings to the Teams chat (real message!)
 npm run sniff      # dev tool: record Evento API traffic from raum.fhnw.ch
 npm run build && npm link && roomreserve   # try the packaged CLI
 ```
 
-There is no linter and no test suite, so there is no single-test command. `npm run build` is the verification step after every change. Never smoke-test by creating or cancelling reservations, because they hit the live FHNW service. The same goes for "Send test message" and any booking with a webhook configured: they post into a real Teams group chat. Test `src/notify.ts` against a local HTTP server, with `HOME` pointed at a temporary folder so the real `notify.json` stays untouched.
+There is no linter and no test suite, so there is no single-test command. `npm run build` is the verification step after every change. Never smoke-test by creating or cancelling reservations, because they hit the live FHNW service. The same goes for `npm run share`, "Send test message" and any booking with a webhook configured: they post into a real Teams group chat. Test `src/notify.ts` against a local HTTP server, with `HOME` pointed at a temporary folder so the real `notify.json` stays untouched.
 
 ## Where AGENTS.md is out of date
 
 Where these notes disagree with `AGENTS.md` or `README.md`, the code (and these notes) win:
 
 - `bin/roomreserve.js` exists. It just `require`s `../dist/index.js`, so the `roomreserve` command needs a fresh `npm run build`.
-- The `discover` script is still in `package.json` even though the README says it was removed. `--discover` is still ignored. Only `--login` is handled in `main()`.
+- The `discover` script is still in `package.json` even though the README says it was removed. `--discover` is still ignored. Only `--login` and `--share` are handled in `main()`.
 - Time rules in `src/ui.ts` (`getTimeRange` / `parseEndTimeOrDuration`):
   - Start time must fall on a 15-minute step. The default is the next quarter hour.
   - The third prompt accepts either an end time (`HH:mm`, 5-minute steps, rolls over to the next day if it is not after the start) or a duration (`90m`, `1h 30m`, `1.5h`, `1,5h`).

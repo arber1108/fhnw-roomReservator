@@ -125,12 +125,14 @@ export async function cancelReservation(auth: AuthState, reservationId: number):
   }
 }
 
-export async function fetchMyReservations(auth: AuthState): Promise<Reservation[]> {
-  const nowUnix = Math.floor(Date.now() / 1000);
+export async function fetchMyReservations(
+  auth: AuthState,
+  fromUnix = Math.floor(Date.now() / 1000)
+): Promise<Reservation[]> {
   const personId = getPersonId(auth);
   const params = personId
-    ? `PersonId=${personId}&DateTimeFrom=${nowUnix}`
-    : `DateTimeFrom=${nowUnix}`;
+    ? `PersonId=${personId}&DateTimeFrom=${fromUnix}`
+    : `DateTimeFrom=${fromUnix}`;
   const res = await apiFetch(auth, `/Reservations/?${params}`);
   if (!res.ok) throw new Error(`Failed to fetch reservations: ${res.status}`);
   return res.json() as Promise<Reservation[]>;

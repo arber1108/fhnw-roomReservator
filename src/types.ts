@@ -54,6 +54,7 @@ export interface Reservation {
   Status: string;
   StatusRemark: string;
   IsCancelable: boolean;
+  FurtherInformation?: string; // number of persons, as entered when booking
   Occupancies?: Occupancy[];
 }
 
@@ -74,8 +75,8 @@ export interface NotifySettings {
 
 export interface BookingNotice {
   room: string;
-  building: string;
-  floor: string;
+  building?: string; // unknown when resending a booking loaded from the reservation list
+  floor?: string;
   from: Date;
   to: Date;
   title: string;

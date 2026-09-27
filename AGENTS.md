@@ -45,6 +45,7 @@ Useful package scripts:
 - `npm run login`: force an interactive browser login and refresh saved authentication.
 - `npm run dev`: run the CLI through `tsx watch`.
 - `npm run build`: type-check and compile `src/` into `dist/`.
+- `npm run share`: post today's and tomorrow's confirmed bookings to Teams again (`--share`), without the menu.
 - `npm run sniff`: open the FHNW room web app and capture its Evento API traffic for endpoint investigation.
 
 After changing code, at minimum run `npm run build`. Exercise pure display/input logic manually when relevant. Do not use live reservation or cancellation requests as casual smoke tests: they modify real FHNW data.

@@ -3,9 +3,9 @@ import Table from "cli-table3";
 import dayjs from "dayjs";
 import { SITES } from "./locations.js";
 import { validateContactEmail, validateWebhookUrl } from "./notify.js";
-import type { AvailableRoom, Contact, NotifySettings, Reservation, Site } from "./types.js";
+import type { AvailableRoom, BookingNotice, Contact, NotifySettings, Reservation, Site } from "./types.js";
 
-type Action = "reserve" | "my-reservations" | "notifications" | "exit";
+type Action = "reserve" | "my-reservations" | "share" | "notifications" | "exit";
 
 type NotifyAction =
   | "set-webhook"
@@ -120,6 +120,7 @@ export async function selectAction(): Promise<Action> {
     choices: [
       { name: "Reserve a room", value: "reserve" as const },
       { name: "My reservations", value: "my-reservations" as const },
+      { name: "Share today's & tomorrow's bookings", value: "share" as const },
       { name: "Notification settings", value: "notifications" as const },
       { name: "Exit", value: "exit" as const },
     ],
@@ -427,5 +428,16 @@ export async function selectContactsToNotify(contacts: Contact[]): Promise<Conta
   return checkbox({
     message: "Message whom in Teams? (space toggles, enter confirms)",
     choices: contacts.map((c) => ({ name: `${c.name} <${c.email}>`, value: c, checked: true })),
+  });
+}
+
+export async function selectBookingsToShare(bookings: BookingNotice[]): Promise<BookingNotice[]> {
+  return checkbox({
+    message: "Share which bookings? (space toggles, enter confirms)",
+    choices: bookings.map((b) => ({
+      name: `${b.room}  ${dayjs(b.from).format("dd DD.MM. HH:mm")}–${dayjs(b.to).format("HH:mm")}  "${b.title}"`,
+      value: b,
+      checked: true,
+    })),
   });
 }

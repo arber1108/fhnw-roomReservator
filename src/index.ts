@@ -11,8 +11,22 @@ import {
   displayReservations,
   selectReservationToCancel,
   confirmCancel,
+  selectNotifyAction,
+  promptWebhookUrl,
+  confirmRemoveWebhook,
+  promptContact,
+  selectContactToRemove,
+  selectContactsToNotify,
 } from "./ui.js";
-import type { AuthState } from "./types.js";
+import {
+  loadNotifySettings,
+  saveNotifySettings,
+  formatBookingLines,
+  postToTeams,
+  buildTeamsChatLink,
+  openUrl,
+} from "./notify.js";
+import type { AuthState, BookingNotice } from "./types.js";
 
 async function withAuth<T>(
   auth: AuthState,
@@ -60,7 +74,97 @@ async function reserveFlow(auth: AuthState): Promise<AuthState> {
   console.log(`\n  Reserved! ${reservation.Status} — ${reservation.StatusRemark || "OK"}`);
   console.log(`  Room: ${reservation.Resource || selected.Room}`);
   console.log(`  ID:   ${reservation.ReservationId}\n`);
+
+  // Runs after withAuth() so a failing notification can never trigger a re-booking.
+  try {
+    await notifyBooking({
+      room: selected.Room,
+      building: selected.Building,
+      floor: selected.Floor,
+      from: new Date(fromUnix * 1000),
+      to: new Date(toUnix * 1000),
+      title,
+      numPersons,
+      reservationId: reservation.ReservationId,
+    });
+  } catch (err: any) {
+    console.log(`  Booking is saved, but the notification was skipped: ${err.message}\n`);
+  }
   return a2;
+}
+
+async function notifyBooking(notice: BookingNotice): Promise<void> {
+  await shareToTeams("Room booked", [formatBookingLines(notice)]);
+}
+
+/** Posts via the webhook; falls back to a pre-filled Teams chat the user sends. */
+async function shareToTeams(title: string, sections: string[][]): Promise<void> {
+  const settings = loadNotifySettings();
+
+  if (settings.teamsWebhookUrl) {
+    try {
+      await postToTeams(settings.teamsWebhookUrl, title, sections);
+      console.log("  Posted to Teams.\n");
+      return;
+    } catch (err: any) {
+      console.log(`  Could not post to Teams: ${err.message}`);
+    }
+  }
+
+  if (settings.contacts.length === 0) {
+    console.log("  Nothing sent: set a Teams webhook or add contacts under Notification settings.\n");
+    return;
+  }
+  const recipients = await selectContactsToNotify(settings.contacts);
+  if (recipients.length === 0) return;
+
+  const message = [title, ...sections.map((lines) => lines.join("\n"))].join("\n\n");
+  const link = buildTeamsChatLink(recipients.map((c) => c.email), message);
+  try {
+    await openUrl(link);
+    console.log("  Opened Teams. Press Send there to share the booking.\n");
+  } catch {
+    console.log(`  Open this link to message them in Teams:\n  ${link}\n`);
+  }
+}
+
+async function notificationSettingsFlow(): Promise<void> {
+  while (true) {
+    const settings = loadNotifySettings();
+    const action = await selectNotifyAction(settings);
+
+    if (action === "back") return;
+    if (action === "set-webhook") {
+      settings.teamsWebhookUrl = await promptWebhookUrl();
+      saveNotifySettings(settings);
+      console.log("  Webhook saved. Use \"Send test message\" to check it.");
+    }
+    if (action === "test-webhook" && settings.teamsWebhookUrl) {
+      await postToTeams(settings.teamsWebhookUrl, "Room Reservator test", [
+        ["Booking notifications are set up for this chat."],
+      ]);
+      console.log("  Test message sent. It should appear in the chat within a few seconds.");
+    }
+    if (action === "remove-webhook" && (await confirmRemoveWebhook())) {
+      delete settings.teamsWebhookUrl;
+      saveNotifySettings(settings);
+      console.log("  Webhook removed.");
+    }
+    if (action === "add-contact") {
+      const contact = await promptContact(settings.contacts);
+      settings.contacts.push(contact);
+      saveNotifySettings(settings);
+      console.log(`  Added ${contact.name}.`);
+    }
+    if (action === "remove-contact") {
+      const contact = await selectContactToRemove(settings.contacts);
+      if (contact) {
+        settings.contacts = settings.contacts.filter((c) => c.email !== contact.email);
+        saveNotifySettings(settings);
+        console.log(`  Removed ${contact.name}.`);
+      }
+    }
+  }
 }
 
 async function myReservationsFlow(auth: AuthState): Promise<AuthState> {
@@ -104,6 +208,7 @@ async function main() {
       if (action === "exit") break;
       if (action === "reserve") auth = await reserveFlow(auth);
       if (action === "my-reservations") auth = await myReservationsFlow(auth);
+      if (action === "notifications") await notificationSettingsFlow();
     } catch (err: any) {
       if (err.message?.includes("force closed") || err.message?.includes("ExitPrompt")) break;
       console.error(`\n  Error: ${err.message}\n`);

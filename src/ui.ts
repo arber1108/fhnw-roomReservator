@@ -1,10 +1,19 @@
-import { select as inquirerSelect, input, confirm } from "@inquirer/prompts";
+import { select as inquirerSelect, input, confirm, password, checkbox } from "@inquirer/prompts";
 import Table from "cli-table3";
 import dayjs from "dayjs";
 import { SITES } from "./locations.js";
-import type { AvailableRoom, Reservation, Site } from "./types.js";
+import { validateContactEmail, validateWebhookUrl } from "./notify.js";
+import type { AvailableRoom, Contact, NotifySettings, Reservation, Site } from "./types.js";
 
-type Action = "reserve" | "my-reservations" | "exit";
+type Action = "reserve" | "my-reservations" | "notifications" | "exit";
+
+type NotifyAction =
+  | "set-webhook"
+  | "test-webhook"
+  | "remove-webhook"
+  | "add-contact"
+  | "remove-contact"
+  | "back";
 
 type EndParseResult = { end: Date } | { error: string };
 
@@ -111,6 +120,7 @@ export async function selectAction(): Promise<Action> {
     choices: [
       { name: "Reserve a room", value: "reserve" as const },
       { name: "My reservations", value: "my-reservations" as const },
+      { name: "Notification settings", value: "notifications" as const },
       { name: "Exit", value: "exit" as const },
     ],
   });
@@ -348,4 +358,74 @@ export async function confirmCancel(reservation: Reservation): Promise<boolean> 
   console.log();
 
   return confirm({ message: "Cancel this reservation?", default: false });
+}
+
+export async function selectNotifyAction(settings: NotifySettings): Promise<NotifyAction> {
+  const hasWebhook = Boolean(settings.teamsWebhookUrl);
+  console.log();
+  console.log(`  Teams webhook: ${hasWebhook ? "set" : "not set"}`);
+  console.log(`  Contacts:      ${settings.contacts.map((c) => c.name).join(", ") || "none"}`);
+  console.log();
+
+  return select<NotifyAction>({
+    message: "Notification settings:",
+    choices: [
+      { name: hasWebhook ? "Replace Teams webhook" : "Set Teams webhook", value: "set-webhook" },
+      ...(hasWebhook
+        ? [
+            { name: "Send test message", value: "test-webhook" as const },
+            { name: "Remove Teams webhook", value: "remove-webhook" as const },
+          ]
+        : []),
+      { name: "Add contact", value: "add-contact" },
+      ...(settings.contacts.length > 0
+        ? [{ name: "Remove contact", value: "remove-contact" as const }]
+        : []),
+      { name: "Back", value: "back" },
+    ],
+  });
+}
+
+export async function promptWebhookUrl(): Promise<string> {
+  // Masked because the URL works like a password for posting into the chat.
+  const url = await password({
+    message: "Paste the Teams Workflows webhook URL:",
+    mask: true,
+    validate: validateWebhookUrl,
+  });
+  return url.trim();
+}
+
+export async function confirmRemoveWebhook(): Promise<boolean> {
+  return confirm({ message: "Remove the Teams webhook?", default: false });
+}
+
+export async function promptContact(contacts: Contact[]): Promise<Contact> {
+  const name = await input({
+    message: "Name:",
+    validate: (val) => (val.trim() ? true : "Enter a name"),
+  });
+  const email = await input({
+    message: "FHNW email (used for the Teams chat link):",
+    validate: (val) => validateContactEmail(val, contacts),
+  });
+  return { name: name.trim(), email: email.trim() };
+}
+
+export async function selectContactToRemove(contacts: Contact[]): Promise<Contact | null> {
+  const email = await select({
+    message: "Remove which contact?",
+    choices: [
+      ...contacts.map((c) => ({ name: `${c.name} <${c.email}>`, value: c.email })),
+      { name: "   Back", value: "" },
+    ],
+  });
+  return contacts.find((c) => c.email === email) ?? null;
+}
+
+export async function selectContactsToNotify(contacts: Contact[]): Promise<Contact[]> {
+  return checkbox({
+    message: "Message whom in Teams? (space toggles, enter confirms)",
+    choices: contacts.map((c) => ({ name: `${c.name} <${c.email}>`, value: c, checked: true })),
+  });
 }

@@ -41,9 +41,21 @@ The main menu lets you:
 
 - **Reserve a room:** choose a campus, date, start time, and duration; then select an available room and confirm the reservation.
 - **My reservations:** view upcoming reservations and cancel a reservation only when the FHNW service marks it as cancellable.
+- **Notification settings:** set a Microsoft Teams webhook and contacts so your group is told about new bookings.
 - **Exit:** close the application.
 
 Creating and cancelling reservations changes real FHNW data. The application asks for confirmation before either action.
+
+## Booking notifications (Microsoft Teams)
+
+After a successful booking, the application can post the room and time into a Teams group chat:
+
+1. In Teams, add the **Workflows** app to your group chat and create a flow from the template for posting webhook alerts to a chat. Copy the webhook URL it gives you.
+2. In the application, open **Notification settings → Set Teams webhook**, paste the URL, then use **Send test message**.
+
+Every later booking is posted automatically. If no webhook is set, or posting fails, the application instead opens a Teams chat with your saved contacts and a pre-filled message; you only press Send. Add contacts under **Notification settings → Add contact**.
+
+Settings are stored per user in `notify.json` next to the session data (see below). Anyone who has the webhook URL can post into the chat, so share it only with people in that chat.
 
 ## Commands
 
@@ -90,7 +102,7 @@ To avoid requiring a browser login on every run, the application stores its sign
 - Windows: `%APPDATA%\\roomreservator`
 - Other systems: `$HOME/.config/roomreservator`
 
-These files can contain authentication tokens, browser cookies, and—when using the sniffer—API request and response data. Keep them private and never commit or share them.
+These files can contain authentication tokens, browser cookies, the Teams webhook URL, and—when using the sniffer—API request and response data. Keep them private and never commit or share them.
 
 ## Development notes
 

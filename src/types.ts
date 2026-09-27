@@ -61,3 +61,24 @@ export interface AuthState {
   clxAuthorization: string;
   expiresAt: number;
 }
+
+export interface Contact {
+  name: string;
+  email: string;
+}
+
+export interface NotifySettings {
+  teamsWebhookUrl?: string;
+  contacts: Contact[];
+}
+
+export interface BookingNotice {
+  room: string;
+  building: string;
+  floor: string;
+  from: Date;
+  to: Date;
+  title: string;
+  numPersons: string;
+  reservationId: number; // 0 when the API did not reveal the new ID
+}

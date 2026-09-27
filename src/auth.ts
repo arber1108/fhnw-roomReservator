@@ -1,19 +1,12 @@
 import { chromium } from "playwright";
 import * as fs from "fs";
 import * as path from "path";
+import { DATA_DIR, ensureDataDir } from "./paths.js";
 import type { AuthState } from "./types.js";
 
-const DATA_DIR = path.join(
-  process.env.APPDATA || path.join(process.env.HOME || ".", ".config"),
-  "roomreservator"
-);
 const AUTH_FILE = path.join(DATA_DIR, "auth.json");
 const SESSION_FILE = path.join(DATA_DIR, "browser-session.json");
 const API_HOST = "eviapi.fhnw.ch";
-
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-}
 
 function loadCachedToken(): AuthState | null {
   try {
@@ -27,7 +20,7 @@ function loadCachedToken(): AuthState | null {
 }
 
 function saveToken(state: AuthState) {
-  ensureDir();
+  ensureDataDir();
   fs.writeFileSync(AUTH_FILE, JSON.stringify(state, null, 2));
 }
 
@@ -87,7 +80,7 @@ async function loginWithBrowser(forceInteractive: boolean): Promise<AuthState> {
   await page.waitForTimeout(1000);
 
   // Save browser state (SSO cookies) for next time
-  ensureDir();
+  ensureDataDir();
   await context.storageState({ path: SESSION_FILE });
 
   await browser.close();

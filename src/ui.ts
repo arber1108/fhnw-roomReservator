@@ -14,8 +14,33 @@ type NotifyAction =
   | "add-contact"
   | "remove-contact"
   | "back";
+type ReservationConfirmation = "confirm" | "back" | "cancel";
 
 type EndParseResult = { end: Date } | { error: string };
+export type TimeRangeDraft = {
+  date: string;
+  startTime: string;
+  endInput: string;
+};
+export type TimeStep = "date" | "start";
+type TimeRange = {
+  fromUnix: number;
+  toUnix: number;
+  fromISO: string;
+  toISO: string;
+};
+type ReservationDetails = { title: string; numPersons: string };
+type ReservationContext = {
+  siteName: string;
+  room: AvailableRoom;
+  fromUnix: number;
+  toUnix: number;
+};
+type InputConfig = {
+  message: string;
+  default?: string;
+  validate?: (value: string) => boolean | string | Promise<boolean | string>;
+};
 
 type SelectChoice<Value> =
   | Value
@@ -34,6 +59,33 @@ type SelectConfig<Value> = {
   loop?: boolean;
   default?: Value;
 };
+
+export function showStep(title: string, context: string[] = []): void {
+  if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
+  console.log("\n  FHNW Room Reservator\n  ────────────────────");
+  console.log(`\n  ${title}`);
+  for (const line of context) console.log(`  ${line}`);
+  console.log();
+}
+
+export function formatPeriod(fromUnix: number, toUnix: number): string {
+  const from = dayjs.unix(fromUnix);
+  const to = dayjs.unix(toUnix);
+  const endFormat = from.isSame(to, "day") ? "HH:mm" : "DD.MM.YYYY HH:mm";
+  return `${from.format("DD.MM.YYYY HH:mm")} – ${to.format(endFormat)}`;
+}
+
+export async function showResult(title: string, lines: string[] = []): Promise<void> {
+  showStep(title, lines);
+  await waitForMainMenu();
+}
+
+export async function waitForMainMenu(): Promise<void> {
+  await select({
+    message: "Continue:",
+    choices: [{ name: "Back to main menu", value: "back" as const }],
+  });
+}
 
 /** Adds W/S navigation to Inquirer's select prompt without changing text inputs. */
 async function select<Value>(config: SelectConfig<Value>): Promise<Value> {
@@ -58,9 +110,30 @@ async function select<Value>(config: SelectConfig<Value>): Promise<Value> {
           keysHelpTip: () => "↑↓ / w s navigate • ⏎ select",
         },
       },
-    });
+    }, { clearPromptOnDone: true });
   } finally {
     process.stdin.removeListener("keypress", mapWsToArrows);
+  }
+}
+
+/** Lets users leave a text prompt with Escape instead of cancelling the CLI. */
+async function inputWithBack(config: InputConfig): Promise<string | null> {
+  const controller = new AbortController();
+  const goBack = (_character: string | undefined, key: { name?: string }): void => {
+    if (key.name === "escape") controller.abort();
+  };
+
+  process.stdin.prependListener("keypress", goBack);
+  try {
+    return await input(config, {
+      signal: controller.signal,
+      clearPromptOnDone: true,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) return null;
+    throw error;
+  } finally {
+    process.stdin.removeListener("keypress", goBack);
   }
 }
 
@@ -81,6 +154,9 @@ function parseEndTimeOrDuration(value: string, start: Date): EndParseResult {
     const end = new Date(start);
     end.setHours(hours, minutes, 0, 0);
     if (end <= start) end.setDate(end.getDate() + 1);
+    if (end.getHours() !== hours || end.getMinutes() !== minutes) {
+      return { error: "End time does not exist on this date" };
+    }
 
     if (end.getTime() - start.getTime() > 16 * 3600_000) {
       return { error: "End time must be within 16 hours of the start" };
@@ -115,6 +191,7 @@ function parseEndTimeOrDuration(value: string, start: Date): EndParseResult {
 }
 
 export async function selectAction(): Promise<Action> {
+  showStep("Main menu");
   return select({
     message: "What do you want to do?",
     choices: [
@@ -127,85 +204,149 @@ export async function selectAction(): Promise<Action> {
   });
 }
 
-export async function selectSite(): Promise<Site> {
+export async function selectSite(defaultSiteId?: number): Promise<Site | null> {
+  showStep("Reserve a room", ["Choose a campus"]);
   const siteId = await select({
     message: "Select campus:",
-    choices: SITES.map((s) => ({
-      name: s.name,
-      value: s.id,
-    })),
+    default: defaultSiteId,
+    choices: [
+      ...SITES.map((s) => ({
+        name: s.name,
+        value: s.id,
+      })),
+      { name: "Back", value: -1 },
+    ],
   });
-  return SITES.find((s) => s.id === siteId)!;
+  if (siteId === -1) return null;
+  return SITES.find((s) => s.id === siteId) ?? null;
 }
 
-export async function getTimeRange(): Promise<{
-  fromUnix: number;
-  toUnix: number;
-  fromISO: string;
-  toISO: string;
-}> {
+export function createTimeRangeDraft(): TimeRangeDraft {
   const now = dayjs();
   const suggestedStart = now
     .add(15 - (now.minute() % 15), "minute")
     .startOf("minute");
 
-  const dateStr = await input({
-    message: "Date (DD.MM.YYYY):",
-    default: suggestedStart.format("DD.MM.YYYY"),
-    validate: (val) => {
-      if (!/^\d{2}\.\d{2}\.\d{4}$/.test(val)) return "Use DD.MM.YYYY format";
-      const p = val.split(".").map(Number);
-      const d = new Date(p[2]!, p[1]! - 1, p[0]!);
-      if (isNaN(d.getTime())) return "Invalid date";
-      return true;
-    },
-  });
-
-  const timeStr = await input({
-    message: "Start time (HH:mm):",
-    default: suggestedStart.format("HH:mm"),
-    validate: (val) => {
-      if (!/^\d{2}:\d{2}$/.test(val)) return "Use HH:mm format";
-      const p = val.split(":").map(Number);
-      if (p[0]! < 0 || p[0]! > 23 || p[1]! < 0 || p[1]! > 59) return "Invalid time";
-      if (p[1]! % 15 !== 0) return "Start time must use 15-minute steps";
-      return true;
-    },
-  });
-
-  const dp = dateStr.split(".").map(Number);
-  const tp = timeStr.split(":").map(Number);
-  const start = new Date(dp[2]!, dp[1]! - 1, dp[0]!, tp[0]!, tp[1]!);
-
-  const endInput = await input({
-    message: "End time or duration (HH:mm, 90m, 1h 30m, 1.5h or 1,5h):",
-    default: dayjs(start).add(1, "hour").format("HH:mm"),
-    validate: (val) => {
-      const result = parseEndTimeOrDuration(val, start);
-      return "error" in result ? result.error : true;
-    },
-  });
-  const endResult = parseEndTimeOrDuration(endInput, start);
-  if ("error" in endResult) throw new Error(endResult.error);
-  const { end } = endResult;
-
   return {
-    fromUnix: Math.floor(start.getTime() / 1000),
-    toUnix: Math.floor(end.getTime() / 1000),
-    fromISO: start.toISOString(),
-    toISO: end.toISOString(),
+    date: suggestedStart.format("DD.MM.YYYY"),
+    startTime: suggestedStart.format("HH:mm"),
+    endInput: suggestedStart.add(1, "hour").format("HH:mm"),
   };
+}
+
+export async function getTimeRange(
+  siteName: string,
+  draft: TimeRangeDraft,
+  initialStep: TimeStep = "date"
+): Promise<TimeRange | null> {
+  let step: "date" | "start" | "end" = initialStep;
+  while (true) {
+    if (step === "date") {
+      showStep("Choose date", [
+        `Campus: ${siteName}`,
+        "Enter keeps the shown value; typing replaces it.",
+      ]);
+      const dateStr = await inputWithBack({
+        message: "Date (DD.MM.YYYY, Esc to go back):",
+        default: draft.date,
+        validate: (val) => {
+          if (!/^\d{2}\.\d{2}\.\d{4}$/.test(val)) return "Use DD.MM.YYYY format";
+          const [day, month, year] = val.split(".").map(Number);
+          const d = new Date(year!, month! - 1, day!);
+          if (
+            isNaN(d.getTime()) ||
+            d.getDate() !== day ||
+            d.getMonth() !== month! - 1 ||
+            d.getFullYear() !== year
+          ) return "Invalid date";
+          return true;
+        },
+      });
+      if (dateStr === null) return null;
+      draft.date = dateStr;
+      step = "start";
+    }
+
+    if (step === "start") {
+      showStep("Choose start time", [
+        `Campus: ${siteName}`,
+        `Date: ${draft.date}`,
+        "Enter keeps the shown value; typing replaces it.",
+      ]);
+      const timeStr = await inputWithBack({
+        message: "Start time (HH:mm, Esc to go back):",
+        default: draft.startTime,
+        validate: (val) => {
+          if (!/^\d{2}:\d{2}$/.test(val)) return "Use HH:mm format";
+          const [hours, minutes] = val.split(":").map(Number);
+          if (hours! < 0 || hours! > 23 || minutes! < 0 || minutes! > 59) return "Invalid time";
+          if (minutes! % 15 !== 0) return "Start time must use 15-minute steps";
+          const [day, month, year] = draft.date.split(".").map(Number);
+          const start = new Date(year!, month! - 1, day!, hours!, minutes!);
+          if (start.getHours() !== hours || start.getMinutes() !== minutes) {
+            return "Start time does not exist on this date";
+          }
+          return true;
+        },
+      });
+      if (timeStr === null) {
+        step = "date";
+        continue;
+      }
+
+      const dp = draft.date.split(".").map(Number);
+      const tp = timeStr.split(":").map(Number);
+      const start = new Date(dp[2]!, dp[1]! - 1, dp[0]!, tp[0]!, tp[1]!);
+      if (timeStr !== draft.startTime && /^\d{2}:\d{2}$/.test(draft.endInput)) {
+        draft.endInput = dayjs(start).add(1, "hour").format("HH:mm");
+      }
+      draft.startTime = timeStr;
+      step = "end";
+    }
+
+    if (step === "end") {
+      const dp = draft.date.split(".").map(Number);
+      const tp = draft.startTime.split(":").map(Number);
+      const start = new Date(dp[2]!, dp[1]! - 1, dp[0]!, tp[0]!, tp[1]!);
+      showStep("Choose end time or duration", [
+        `Campus: ${siteName}`,
+        `Start: ${dayjs(start).format("DD.MM.YYYY HH:mm")}`,
+        "Enter keeps the shown value; typing replaces it.",
+      ]);
+      const endInput = await inputWithBack({
+        message: "End time or duration (Esc to go back):",
+        default: draft.endInput,
+        validate: (val) => {
+          const result = parseEndTimeOrDuration(val, start);
+          return "error" in result ? result.error : true;
+        },
+      });
+      if (endInput === null) {
+        step = "start";
+        continue;
+      }
+
+      const endResult = parseEndTimeOrDuration(endInput, start);
+      if ("error" in endResult) throw new Error(endResult.error);
+      draft.endInput = endInput;
+      const { end } = endResult;
+      return {
+        fromUnix: Math.floor(start.getTime() / 1000),
+        toUnix: Math.floor(end.getTime() / 1000),
+        fromISO: start.toISOString(),
+        toISO: end.toISOString(),
+      };
+    }
+  }
 }
 
 export function displayRooms(rooms: AvailableRoom[], fromUnix: number, toUnix: number): void {
   if (rooms.length === 0) {
-    console.log("\n  No rooms available for this time slot.\n");
+    console.log("  No rooms available for this time slot.\n");
     return;
   }
 
-  const fromStr = dayjs.unix(fromUnix).format("DD.MM.YYYY HH:mm");
-  const toStr = dayjs.unix(toUnix).format("HH:mm");
-  console.log(`\n  ${rooms.length} rooms available (${fromStr} – ${toStr}):\n`);
+  console.log(`  ${rooms.length} rooms available (${formatPeriod(fromUnix, toUnix)}):\n`);
 
   const table = new Table({
     head: ["#", "Room", "Building", "Floor", "Capacity", "Type"],
@@ -228,8 +369,22 @@ export function displayRooms(rooms: AvailableRoom[], fromUnix: number, toUnix: n
   console.log();
 }
 
-export async function selectRoom(rooms: AvailableRoom[]): Promise<AvailableRoom | null> {
-  if (rooms.length === 0) return null;
+export async function selectRoom(
+  rooms: AvailableRoom[],
+  siteName: string,
+  fromUnix: number,
+  toUnix: number
+): Promise<AvailableRoom | "back"> {
+  showStep("Choose a room", [`Campus: ${siteName}`]);
+  displayRooms(rooms, fromUnix, toUnix);
+
+  if (rooms.length === 0) {
+    await select({
+      message: "Continue:",
+      choices: [{ name: "Change time", value: "back" as const }],
+    });
+    return "back";
+  }
 
   const roomId = await select({
     message: "Select room:",
@@ -238,24 +393,44 @@ export async function selectRoom(rooms: AvailableRoom[]): Promise<AvailableRoom 
         name: `${(i + 1).toString().padStart(2)}. ${r.Room}  (${r.Building}, ${r.Floor}, ${r.NumberPersons} Pl.)`,
         value: r.RoomId,
       })),
-      { name: "   Cancel", value: -1 },
+      { name: "   Back", value: -1 },
     ],
   });
 
-  if (roomId === -1) return null;
-  return rooms.find((r) => r.RoomId === roomId) ?? null;
+  if (roomId === -1) return "back";
+  return rooms.find((r) => r.RoomId === roomId) ?? "back";
 }
 
-export async function getReservationDetails(): Promise<{ title: string; numPersons: string }> {
-  const title = await input({
-    message: "Reservation title:",
-    default: "Gruppenarbeit",
-  });
-  const numPersons = await input({
-    message: "Number of persons:",
-    default: "1",
-  });
-  return { title, numPersons };
+export async function getReservationDetails(
+  context: ReservationContext,
+  previous?: ReservationDetails
+): Promise<ReservationDetails | null> {
+  const defaults = previous ?? { title: "Gruppenarbeit", numPersons: "1" };
+  let titleDefault = defaults.title;
+  const summary = [
+    `Campus: ${context.siteName}`,
+    `Room: ${context.room.Room}`,
+    `Time: ${formatPeriod(context.fromUnix, context.toUnix)}`,
+    "Enter keeps the shown value; typing replaces it.",
+  ];
+
+  while (true) {
+    showStep("Reservation details", summary);
+    const title = await inputWithBack({
+      message: "Reservation title (Esc to go back):",
+      default: titleDefault,
+    });
+    if (title === null) return null;
+
+    showStep("Reservation details", [...summary, `Title: ${title}`]);
+    const numPersons = await inputWithBack({
+      message: "Number of persons (Esc to go back):",
+      default: defaults.numPersons,
+    });
+    if (numPersons !== null) return { title, numPersons };
+
+    titleDefault = title;
+  }
 }
 
 export async function confirmReservation(
@@ -264,20 +439,24 @@ export async function confirmReservation(
   toUnix: number,
   title: string,
   numPersons: string
-): Promise<boolean> {
-  const fromStr = dayjs.unix(fromUnix).format("DD.MM.YYYY HH:mm");
-  const toStr = dayjs.unix(toUnix).format("HH:mm");
-
-  console.log();
+): Promise<ReservationConfirmation> {
+  showStep("Confirm reservation");
   console.log("  ┌─ Reservation ──────────────────────────");
   console.log(`  │ Room:     ${room.Room} (${room.Building}, ${room.Floor})`);
-  console.log(`  │ Time:     ${fromStr} – ${toStr}`);
+  console.log(`  │ Time:     ${formatPeriod(fromUnix, toUnix)}`);
   console.log(`  │ Title:    ${title}`);
   console.log(`  │ Persons:  ${numPersons}`);
   console.log("  └─────────────────────────────────────────");
   console.log();
 
-  return confirm({ message: "Confirm?" });
+  return select({
+    message: "Continue?",
+    choices: [
+      { name: "Reserve room", value: "confirm" as const },
+      { name: "Back (edit details)", value: "back" as const },
+      { name: "Cancel reservation", value: "cancel" as const },
+    ],
+  });
 }
 
 export function displayReservations(reservations: Reservation[]): void {
@@ -317,9 +496,24 @@ export function displayReservations(reservations: Reservation[]): void {
 export async function selectReservationToCancel(
   reservations: Reservation[]
 ): Promise<Reservation | null> {
+  showStep("My reservations");
+  displayReservations(reservations);
+
+  if (reservations.length === 0) {
+    await select({
+      message: "Continue:",
+      choices: [{ name: "Back to main menu", value: "back" as const }],
+    });
+    return null;
+  }
+
   const cancelable = reservations.filter((r) => r.IsCancelable);
   if (cancelable.length === 0) {
     console.log("  No cancelable reservations.\n");
+    await select({
+      message: "Continue:",
+      choices: [{ name: "Back to main menu", value: "back" as const }],
+    });
     return null;
   }
 
@@ -350,7 +544,7 @@ export async function confirmCancel(reservation: Reservation): Promise<boolean> 
     ? `${dayjs(occ.DateTimeFrom).format("DD.MM.YYYY HH:mm")} – ${dayjs(occ.DateTimeTo).format("HH:mm")}`
     : "";
 
-  console.log();
+  showStep("Cancel reservation");
   console.log("  ┌─ Cancel Reservation ────────────────────");
   console.log(`  │ Room:   ${reservation.Resource}`);
   console.log(`  │ Time:   ${when}`);
@@ -358,7 +552,10 @@ export async function confirmCancel(reservation: Reservation): Promise<boolean> 
   console.log("  └─────────────────────────────────────────");
   console.log();
 
-  return confirm({ message: "Cancel this reservation?", default: false });
+  return confirm(
+    { message: "Cancel this reservation?", default: false },
+    { clearPromptOnDone: true }
+  );
 }
 
 export async function selectNotifyAction(settings: NotifySettings): Promise<NotifyAction> {

@@ -4,12 +4,12 @@ import { fetchAvailableRooms, createReservation, fetchMyReservations, cancelRese
 import {
   selectAction,
   selectSite,
+  createTimeRangeDraft,
   getTimeRange,
-  displayRooms,
+  formatPeriod,
   selectRoom,
   getReservationDetails,
   confirmReservation,
-  displayReservations,
   selectReservationToCancel,
   confirmCancel,
   selectNotifyAction,
@@ -19,6 +19,9 @@ import {
   selectContactToRemove,
   selectContactsToNotify,
   selectBookingsToShare,
+  showStep,
+  showResult,
+  waitForMainMenu,
 } from "./ui.js";
 import {
   loadNotifySettings,
@@ -29,6 +32,7 @@ import {
   openUrl,
 } from "./notify.js";
 import type { AuthState, BookingNotice, Reservation } from "./types.js";
+import type { TimeStep } from "./ui.js";
 
 const CONFIRMED_STATUS = "Bestätigt";
 
@@ -49,52 +53,85 @@ async function withAuth<T>(
 }
 
 async function reserveFlow(auth: AuthState): Promise<AuthState> {
-  const site = await selectSite();
-  const { fromUnix, toUnix, fromISO, toISO } = await getTimeRange();
+  const timeDraft = createTimeRangeDraft();
+  let previousSiteId: number | undefined;
 
-  console.log(`\n  Fetching rooms at ${site.name}...`);
-  const { result: rooms, auth: a1 } = await withAuth(auth, (a) =>
-    fetchAvailableRooms(a, site.id, fromUnix, toUnix)
-  );
-  auth = a1;
+  while (true) {
+    const site = await selectSite(previousSiteId);
+    if (!site) return auth;
+    previousSiteId = site.id;
+    let timeStep: TimeStep = "date";
 
-  displayRooms(rooms, fromUnix, toUnix);
+    while (true) {
+      const timeRange = await getTimeRange(site.name, timeDraft, timeStep);
+      if (!timeRange) break;
+      const { fromUnix, toUnix, fromISO, toISO } = timeRange;
+      timeStep = "start";
 
-  const selected = await selectRoom(rooms);
-  if (!selected) return auth;
+      showStep("Searching rooms", [
+        `Campus: ${site.name}`,
+        `Time: ${formatPeriod(fromUnix, toUnix)}`,
+      ]);
+      console.log("  Fetching available rooms...");
+      const { result: rooms, auth: a1 } = await withAuth(auth, (a) =>
+        fetchAvailableRooms(a, site.id, fromUnix, toUnix)
+      );
+      auth = a1;
 
-  const { title, numPersons } = await getReservationDetails();
-  const ok = await confirmReservation(selected, fromUnix, toUnix, title, numPersons);
-  if (!ok) {
-    console.log("  Cancelled.\n");
-    return auth;
+      let detailsDraft: { title: string; numPersons: string } | undefined;
+      while (true) {
+        const selected = await selectRoom(rooms, site.name, fromUnix, toUnix);
+        if (selected === "back") break;
+
+        const context = { siteName: site.name, room: selected, fromUnix, toUnix };
+        let details = await getReservationDetails(context, detailsDraft);
+        while (details) {
+          detailsDraft = details;
+          const { title, numPersons } = details;
+          const confirmation = await confirmReservation(selected, fromUnix, toUnix, title, numPersons);
+          if (confirmation === "back") {
+            details = await getReservationDetails(context, details);
+            continue;
+          }
+          if (confirmation === "cancel") return auth;
+
+          showStep("Reserving room", [
+            `Room: ${selected.Room}`,
+            `Time: ${formatPeriod(fromUnix, toUnix)}`,
+          ]);
+          console.log("  Sending reservation...");
+          const { result: reservation, auth: a2 } = await withAuth(auth, (a) =>
+            createReservation(a, selected.RoomId, fromISO, toISO, title, numPersons)
+          );
+
+          showStep("Room reserved", [
+            `Status: ${reservation.Status} — ${reservation.StatusRemark || "OK"}`,
+            `Room: ${reservation.Resource || selected.Room}`,
+            `ID: ${reservation.ReservationId}`,
+          ]);
+
+          // Runs after withAuth() so a failing notification can never trigger a re-booking.
+          try {
+            await notifyBooking({
+              room: selected.Room,
+              building: selected.Building,
+              floor: selected.Floor,
+              from: new Date(fromUnix * 1000),
+              to: new Date(toUnix * 1000),
+              title,
+              numPersons,
+              reservationId: reservation.ReservationId,
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.log(`  Booking is saved, but the notification was skipped: ${message}\n`);
+          }
+          await waitForMainMenu();
+          return a2;
+        }
+      }
+    }
   }
-
-  console.log("\n  Reserving...");
-  const { result: reservation, auth: a2 } = await withAuth(auth, (a) =>
-    createReservation(a, selected.RoomId, fromISO, toISO, title, numPersons)
-  );
-
-  console.log(`\n  Reserved! ${reservation.Status} — ${reservation.StatusRemark || "OK"}`);
-  console.log(`  Room: ${reservation.Resource || selected.Room}`);
-  console.log(`  ID:   ${reservation.ReservationId}\n`);
-
-  // Runs after withAuth() so a failing notification can never trigger a re-booking.
-  try {
-    await notifyBooking({
-      room: selected.Room,
-      building: selected.Building,
-      floor: selected.Floor,
-      from: new Date(fromUnix * 1000),
-      to: new Date(toUnix * 1000),
-      title,
-      numPersons,
-      reservationId: reservation.ReservationId,
-    });
-  } catch (err: any) {
-    console.log(`  Booking is saved, but the notification was skipped: ${err.message}\n`);
-  }
-  return a2;
 }
 
 async function notifyBooking(notice: BookingNotice): Promise<void> {
@@ -172,27 +209,28 @@ async function notificationSettingsFlow(): Promise<void> {
 }
 
 async function myReservationsFlow(auth: AuthState): Promise<AuthState> {
-  console.log("\n  Loading reservations...");
+  showStep("My reservations");
+  console.log("  Loading reservations...");
   const { result: reservations, auth: a1 } = await withAuth(auth, fetchMyReservations);
   auth = a1;
 
-  displayReservations(reservations);
+  while (true) {
+    const toCancel = await selectReservationToCancel(reservations);
+    if (!toCancel) return auth;
 
-  const toCancel = await selectReservationToCancel(reservations);
-  if (!toCancel) return auth;
+    const ok = await confirmCancel(toCancel);
+    if (!ok) continue;
 
-  const ok = await confirmCancel(toCancel);
-  if (!ok) {
-    console.log("  Kept.\n");
-    return auth;
+    showStep("Cancelling reservation");
+    console.log("  Cancelling...");
+    const { auth: a2 } = await withAuth(auth, (a) =>
+      cancelReservation(a, toCancel.ReservationId)
+    );
+    await showResult("Reservation cancelled", [
+      `Reservation ${toCancel.ReservationId} was cancelled.`,
+    ]);
+    return a2;
   }
-
-  console.log("\n  Cancelling...");
-  const { auth: a2 } = await withAuth(auth, (a) =>
-    cancelReservation(a, toCancel.ReservationId)
-  );
-  console.log(`  Reservation ${toCancel.ReservationId} cancelled.\n`);
-  return a2;
 }
 
 function toBookingNotice(r: Reservation): BookingNotice | null {
@@ -227,6 +265,7 @@ async function shareBookingsFlow(auth: AuthState, pickBookings: boolean): Promis
 
   if (current.length === 0) {
     console.log("  No confirmed bookings left for today or tomorrow.\n");
+    if (pickBookings) await waitForMainMenu();
     return a1;
   }
 
@@ -234,6 +273,7 @@ async function shareBookingsFlow(auth: AuthState, pickBookings: boolean): Promis
   if (chosen.length === 0) return a1;
 
   await shareToTeams(chosen.length === 1 ? "Our booking" : "Our bookings", chosen.map(formatBookingLines));
+  if (pickBookings) await waitForMainMenu();
   return a1;
 }
 
@@ -263,7 +303,7 @@ async function main() {
       if (action === "notifications") await notificationSettingsFlow();
     } catch (err: any) {
       if (err.message?.includes("force closed") || err.message?.includes("ExitPrompt")) break;
-      console.error(`\n  Error: ${err.message}\n`);
+      await showResult("Error", [err.message]);
     }
   }
 }

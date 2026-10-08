@@ -45,6 +45,8 @@ The main menu lets you:
 - **Notification settings:** set a Microsoft Teams webhook and contacts so your group is told about new bookings.
 - **Exit:** close the application.
 
+Use **Back** in selection lists or **Esc** in text fields to return to the previous step. Enter keeps the shown value; typing a new value replaces it.
+
 Creating and cancelling reservations changes real FHNW data. The application asks for confirmation before either action.
 
 ## Booking notifications (Microsoft Teams)

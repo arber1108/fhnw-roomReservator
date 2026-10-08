@@ -93,12 +93,10 @@ async function select<Value>(config: SelectConfig<Value>): Promise<Value> {
     _character: string | undefined,
     key: { name?: string }
   ): void => {
-    if (key.name !== "w" && key.name !== "s") return;
-
-    process.stdin.emit("keypress", undefined, {
-      ...key,
-      name: key.name === "w" ? "up" : "down",
-    });
+    // Inquirer must see only the navigation key. Emitting another keypress here
+    // also lets it process the original W/S as a choice search.
+    if (key.name === "w") key.name = "up";
+    if (key.name === "s") key.name = "down";
   };
 
   process.stdin.prependListener("keypress", mapWsToArrows);

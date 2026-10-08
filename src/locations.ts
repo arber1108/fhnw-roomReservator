@@ -12,11 +12,6 @@ export const SITES: Site[] = [
     buildingIds: [21101],
   },
   {
-    id: 207,
-    name: "Basel (Peter-Merian-Haus)",
-    buildingIds: [20701],
-  },
-  {
     id: 313,
     name: "Campus Olten",
     buildingIds: [31301, 31305],

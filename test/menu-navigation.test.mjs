@@ -9,6 +9,9 @@ import {
   promptStartTime,
   promptEndTime,
   selectRoom,
+  selectReservation,
+  selectReservationAction,
+  selectExtensionDirection,
   selectNotifyAction,
   selectContactsToNotify,
   confirmRemoveWebhook,
@@ -144,4 +147,29 @@ test("returning from details keeps the previously selected room highlighted", as
   }
   assert.deepEqual(terminal.rawModes, [true, false]);
   assert.equal(terminal.listenerCount("data"), 0);
+});
+
+test("reservation menu reaches extension and Esc returns from direction selection", async () => {
+  const terminal = new FakeTerminal();
+  const session = new PromptSession(terminal);
+  const booking = {
+    ReservationId: 42, ResourceId: 7, Resource: "A101", Designation: "Team",
+    Status: "Bestätigt", IsCancelable: true,
+    Occupancies: [{ DateTimeFrom: "2027-01-15T09:00:00Z", DateTimeTo: "2027-01-15T10:00:00Z" }],
+  };
+  try {
+    let selection = selectReservation(session, [booking]);
+    await press(terminal, "\r");
+    assert.equal((await selection).value.ReservationId, 42);
+
+    selection = selectReservationAction(session, booking);
+    await press(terminal, "\r");
+    assert.deepEqual(await selection, { kind: "value", value: "extend" });
+
+    selection = selectExtensionDirection(session, booking);
+    await press(terminal, "\x1b");
+    assert.deepEqual(await selection, { kind: "back" });
+  } finally {
+    session.close();
+  }
 });

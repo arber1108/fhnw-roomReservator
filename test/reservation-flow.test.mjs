@@ -176,7 +176,8 @@ test("cancellation Back never deletes and explicit confirmation deletes once", a
   let resultShown = 0;
   const deps = {
     fetchMyReservations: async () => [reservation],
-    selectReservationToCancel: async () => { selected++; return value(reservation); },
+    selectReservation: async () => { selected++; return value(reservation); },
+    selectReservationAction: async () => value("cancel"),
     confirmCancel: async () => ++confirmed === 1 ? back : value(true),
     cancelReservation: async (_auth, id) => {
       assert.equal(id, reservation.ReservationId);

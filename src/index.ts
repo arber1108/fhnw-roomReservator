@@ -1,6 +1,9 @@
 import { authenticate } from "./auth.js";
 import dayjs from "dayjs";
-import { fetchAvailableRooms, createReservation, fetchMyReservations, cancelReservation } from "./api.js";
+import {
+  fetchAvailableRooms, createReservation, fetchMyReservations, cancelReservation,
+  findAvailableRoomSite, isRoomAvailable,
+} from "./api.js";
 import {
   selectAction,
   selectSite,
@@ -14,7 +17,12 @@ import {
   promptReservationTitle,
   promptReservationPersons,
   confirmReservation,
-  selectReservationToCancel,
+  selectReservation,
+  selectReservationAction,
+  selectExtensionDirection,
+  promptExtensionDuration,
+  promptExtensionPersons,
+  confirmExtension,
   confirmCancel,
   selectNotifyAction,
   promptWebhookUrl,
@@ -38,6 +46,7 @@ import {
 } from "./notify.js";
 import { PromptSession, PromptInterruptedError } from "./prompt-session.js";
 import { previousReservationStep } from "./reservation-navigation.js";
+import { ExtensionSearch, findMaximumExtension } from "./extension.js";
 import type { ReservationStep } from "./reservation-navigation.js";
 import type { AuthState, AvailableRoom, BookingNotice, Reservation, Site } from "./types.js";
 import type { TimeRange } from "./ui.js";
@@ -67,9 +76,19 @@ export type ReservationFlowDependencies = typeof reservationFlowDependencies;
 
 export const cancellationFlowDependencies = {
   fetchMyReservations,
-  selectReservationToCancel,
+  selectReservation,
+  selectReservationAction,
   confirmCancel,
   cancelReservation,
+  selectExtensionDirection,
+  promptExtensionDuration,
+  promptExtensionPersons,
+  confirmExtension,
+  findAvailableRoomSite,
+  isRoomAvailable,
+  createReservation,
+  notifyBooking,
+  waitForMainMenu,
   showResult,
 };
 export type CancellationFlowDependencies = typeof cancellationFlowDependencies;
@@ -365,25 +384,145 @@ export async function myReservationsFlow(
   const deps = { ...cancellationFlowDependencies, ...overrides };
   showStep("My reservations");
   console.log("  Loading reservations...");
-  const { result: reservations, auth: a1 } = await withAuth(auth, deps.fetchMyReservations);
+  // Include reservations already in progress; the ordinary default query starts at now.
+  const fromUnix = Math.floor((Date.now() - 24 * 3600_000) / 1000);
+  const fetched = await withAuth(auth, (a) => deps.fetchMyReservations(a, fromUnix));
+  const reservations = fetched.result.filter((reservation) => {
+    if (reservation.Status === "Storniert") return false;
+    const occupancies = reservation.Occupancies;
+    return !occupancies?.length || occupancies.some((occupancy) =>
+      new Date(occupancy.DateTimeTo).getTime() > Date.now()
+    );
+  });
+  const a1 = fetched.auth;
   auth = a1;
 
   while (true) {
-    const toCancel = await deps.selectReservationToCancel(session, reservations);
-    if (toCancel.kind === "back") return auth;
+    const selected = await deps.selectReservation(session, reservations);
+    if (selected.kind === "back") return auth;
+    const reservation = selected.value;
+    const action = await deps.selectReservationAction(session, reservation);
+    if (action.kind === "back") continue;
+    if (action.value === "extend") {
+      const outcome = await extendReservationFlow(session, auth, reservation, deps);
+      if (outcome.back) {
+        auth = outcome.auth;
+        continue;
+      }
+      return outcome.auth;
+    }
 
-    const ok = await deps.confirmCancel(session, toCancel.value);
+    const ok = await deps.confirmCancel(session, reservation);
     if (ok.kind === "back" || !ok.value) continue;
 
     showStep("Cancelling reservation");
     console.log("  Cancelling...");
     const { auth: a2 } = await withAuth(auth, (a) =>
-      deps.cancelReservation(a, toCancel.value.ReservationId)
+      deps.cancelReservation(a, reservation.ReservationId)
     );
     await deps.showResult(session, "Reservation cancelled", [
-      `Reservation ${toCancel.value.ReservationId} was cancelled.`,
+      `Reservation ${reservation.ReservationId} was cancelled.`,
     ]);
     return a2;
+  }
+}
+
+async function extendReservationFlow(
+  session: PromptSession,
+  initialAuth: AuthState,
+  reservation: Reservation,
+  deps: CancellationFlowDependencies
+): Promise<{ auth: AuthState; back: boolean }> {
+  let auth = initialAuth;
+  while (true) {
+    const direction = await deps.selectExtensionDirection(session, reservation);
+    if (direction.kind === "back") return { auth, back: true };
+    const search = ExtensionSearch.forReservation(reservation, direction.value);
+    if (!search) {
+      await deps.showResult(session, "Extension unavailable", ["This reservation can no longer be extended in that direction."]);
+      return { auth, back: false };
+    }
+
+    showStep("Checking extension", [`Room: ${reservation.Resource}`]);
+    console.log("  Checking available time...");
+    const adjacent = search.range(1);
+    const located = await withAuth(auth, (a) => deps.findAvailableRoomSite(
+      a, reservation.ResourceId, adjacent.fromUnix, adjacent.toUnix
+    ));
+    auth = located.auth;
+    if (located.result === null) {
+      await deps.showResult(session, "Extension unavailable", ["No bookable time immediately next to this reservation."]);
+      return { auth, back: false };
+    }
+    const siteId = located.result;
+    const maximum = await findMaximumExtension(search, async (range) => {
+      const checked = await withAuth(auth, (a) => deps.isRoomAvailable(
+        a, siteId, reservation.ResourceId, range.fromUnix, range.toUnix
+      ));
+      auth = checked.auth;
+      return checked.result;
+    });
+
+    while (true) {
+      const selectedDuration = await deps.promptExtensionDuration(session, reservation, search, maximum);
+      if (selectedDuration.kind === "back") break;
+      const range = search.range(selectedDuration.value);
+      let persons = reservation.FurtherInformation?.trim();
+      if (!persons) {
+        const entered = await deps.promptExtensionPersons(session, reservation);
+        if (entered.kind === "back") continue;
+        persons = entered.value;
+      }
+      const confirmation = await deps.confirmExtension(session, reservation, range, search.gapMinutes, persons);
+      if (confirmation.kind === "back") continue;
+      if (!confirmation.value) return { auth, back: false };
+
+      if (range.fromUnix * 1000 <= Date.now()) {
+        await deps.showResult(session, "Extension unavailable", ["The selected start time is no longer in the future."]);
+        return { auth, back: false };
+      }
+      const finalCheck = await withAuth(auth, (a) => deps.isRoomAvailable(
+        a, siteId, reservation.ResourceId, range.fromUnix, range.toUnix
+      ));
+      auth = finalCheck.auth;
+      if (!finalCheck.result) {
+        await deps.showResult(session, "Extension unavailable", ["The selected time is no longer available."]);
+        return { auth, back: false };
+      }
+
+      showStep("Booking extension", [
+        `Room: ${reservation.Resource}`,
+        `Time: ${formatPeriod(range.fromUnix, range.toUnix)}`,
+      ]);
+      const booked = await withAuth(auth, (a) => deps.createReservation(
+        a, reservation.ResourceId,
+        new Date(range.fromUnix * 1000).toISOString(),
+        new Date(range.toUnix * 1000).toISOString(),
+        reservation.Designation, persons
+      ));
+      auth = booked.auth;
+      showStep("Extension booked", [
+        `Room: ${reservation.Resource}`,
+        `Time: ${formatPeriod(range.fromUnix, range.toUnix)}`,
+        `ID: ${booked.result.ReservationId}`,
+      ]);
+      try {
+        await deps.notifyBooking(session, {
+          room: reservation.Resource,
+          from: new Date(range.fromUnix * 1000),
+          to: new Date(range.toUnix * 1000),
+          title: reservation.Designation,
+          numPersons: persons,
+          reservationId: booked.result.ReservationId,
+        });
+      } catch (err) {
+        if (isPromptExit(err)) throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        console.log(`  Extension is saved, but the notification was skipped: ${message}\n`);
+      }
+      await deps.waitForMainMenu(session);
+      return { auth, back: false };
+    }
   }
 }
 

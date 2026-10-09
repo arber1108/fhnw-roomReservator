@@ -16,7 +16,7 @@
     "login": "tsx src/index.ts --login",
     "discover": "tsx src/index.ts --discover",
     "build": "tsc",
-    "test": "npm run build && node --test test/menu-navigation.test.mjs test/reservation-flow.test.mjs",
+    "test": "npm run build && node --test test/menu-navigation.test.mjs test/reservation-flow.test.mjs test/extension.test.mjs",
     "prepack": "npm run build",
     "dev": "tsx watch src/index.ts",
     "sniff": "tsx src/sniff.ts",

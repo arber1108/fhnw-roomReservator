@@ -5,6 +5,8 @@ import { SITES } from "./locations.js";
 import { validateContactEmail, validateWebhookUrl } from "./notify.js";
 import type { PromptResult, PromptSession } from "./prompt-session.js";
 import type { AvailableRoom, BookingNotice, Contact, NotifySettings, Reservation, Site } from "./types.js";
+import { ExtensionSearch, isExtendableReservation } from "./extension.js";
+import type { ExtensionDirection, ExtensionRange } from "./extension.js";
 
 type Action = "reserve" | "my-reservations" | "share" | "notifications" | "exit";
 
@@ -481,7 +483,7 @@ export function displayReservations(reservations: Reservation[]): void {
   console.log();
 }
 
-export async function selectReservationToCancel(
+export async function selectReservation(
   session: PromptSession,
   reservations: Reservation[]
 ): Promise<PromptResult<Reservation>> {
@@ -496,9 +498,9 @@ export async function selectReservationToCancel(
     return { kind: "back" };
   }
 
-  const cancelable = reservations.filter((r) => r.IsCancelable);
-  if (cancelable.length === 0) {
-    console.log("  No cancelable reservations.\n");
+  const actionable = reservations.filter((r) => r.IsCancelable || isExtendableReservation(r));
+  if (actionable.length === 0) {
+    console.log("  No reservations can be changed.\n");
     await select(session, {
       message: "Continue:",
       choices: [{ name: "Back to main menu", value: "back" as const }],
@@ -507,9 +509,9 @@ export async function selectReservationToCancel(
   }
 
   const id = await select(session, {
-    message: "Select reservation to cancel:",
+    message: "Select reservation:",
     choices: [
-      ...cancelable.map((r, i) => {
+      ...actionable.map((r, i) => {
         const occ = r.Occupancies?.[0];
         const when = occ
           ? `${dayjs(occ.DateTimeFrom).format("DD.MM. HH:mm")}–${dayjs(occ.DateTimeTo).format("HH:mm")}`
@@ -524,8 +526,116 @@ export async function selectReservationToCancel(
   });
 
   if (id.kind === "back" || id.value === -1) return { kind: "back" };
-  const reservation = cancelable.find((r) => r.ReservationId === id.value);
+  const reservation = actionable.find((r) => r.ReservationId === id.value);
   return reservation ? { kind: "value", value: reservation } : { kind: "back" };
+}
+
+export async function selectReservationAction(
+  session: PromptSession,
+  reservation: Reservation
+): Promise<PromptResult<"extend" | "cancel">> {
+  showStep("Manage reservation", [
+    `Room: ${reservation.Resource}`,
+    `Title: ${reservation.Designation}`,
+  ]);
+  const result = await select(session, {
+    message: "What do you want to do?",
+    choices: [
+      ...(isExtendableReservation(reservation)
+        ? [{ name: "Extend reservation", value: "extend" as const }]
+        : []),
+      ...(reservation.IsCancelable
+        ? [{ name: "Cancel reservation", value: "cancel" as const }]
+        : []),
+      { name: "Back", value: "back" as const },
+    ],
+  });
+  if (result.kind === "back" || result.value === "back") return { kind: "back" };
+  return { kind: "value", value: result.value };
+}
+
+export async function selectExtensionDirection(
+  session: PromptSession,
+  reservation: Reservation
+): Promise<PromptResult<ExtensionDirection>> {
+  const before = ExtensionSearch.forReservation(reservation, "before");
+  const after = ExtensionSearch.forReservation(reservation, "after");
+  showStep("Extend reservation", [`Room: ${reservation.Resource}`]);
+  const result = await select(session, {
+    message: "Extend in which direction?",
+    choices: [
+      ...(before ? [{ name: "Before the reservation", value: "before" as const }] : []),
+      ...(after ? [{ name: "After the reservation", value: "after" as const }] : []),
+      { name: "Back", value: "back" as const },
+    ],
+  });
+  if (result.kind === "back" || result.value === "back") return { kind: "back" };
+  return { kind: "value", value: result.value };
+}
+
+export async function promptExtensionDuration(
+  session: PromptSession,
+  reservation: Reservation,
+  search: ExtensionSearch,
+  maximumUnits: number
+): Promise<PromptResult<number>> {
+  const maximum = search.range(maximumUnits);
+  const minimum = search.range(1);
+  showStep("Choose extension duration", [
+    `Room: ${reservation.Resource}`,
+    `Maximum: ${maximum.durationMinutes} minutes (${formatPeriod(maximum.fromUnix, maximum.toUnix)})`,
+    `Allowed: ${minimum.durationMinutes} minutes, then ${search.direction === "before" ? "15" : "5"}-minute steps`,
+    ...(search.gapMinutes ? [`Gap after original reservation: ${search.gapMinutes} minutes`] : []),
+  ]);
+  const result = await inputWithBack(session, {
+    message: "Additional duration in minutes (Esc to go back):",
+    default: String(maximum.durationMinutes),
+    validate: (value) => {
+      const minutes = Number(value.trim());
+      return Number.isInteger(minutes) && search.unitsForDuration(minutes, maximumUnits) !== null
+        ? true
+        : "Enter one of the available durations shown above";
+    },
+  });
+  if (result.kind === "back") return result;
+  const units = search.unitsForDuration(Number(result.value.trim()), maximumUnits);
+  if (units === null) throw new Error("Invalid extension duration");
+  return { kind: "value", value: units };
+}
+
+export async function promptExtensionPersons(
+  session: PromptSession,
+  reservation: Reservation
+): Promise<PromptResult<string>> {
+  showStep("Extension details", [`Room: ${reservation.Resource}`, `Title: ${reservation.Designation}`]);
+  const result = await inputWithBack(session, {
+    message: "Number of persons (Esc to go back):",
+    default: "1",
+    validate: (value) => value.trim() ? true : "Enter a number of persons",
+  });
+  return result.kind === "back" ? result : { kind: "value", value: result.value.trim() };
+}
+
+export async function confirmExtension(
+  session: PromptSession,
+  reservation: Reservation,
+  range: ExtensionRange,
+  gapMinutes: number,
+  persons: string
+): Promise<PromptResult<boolean>> {
+  const original = reservation.Occupancies![0]!;
+  showStep("Confirm extension", [
+    `Room: ${reservation.Resource}`,
+    `Existing: ${formatPeriod(new Date(original.DateTimeFrom).getTime() / 1000, new Date(original.DateTimeTo).getTime() / 1000)}`,
+    `Additional: ${formatPeriod(range.fromUnix, range.toUnix)}`,
+    ...(gapMinutes ? [`Gap between reservations: ${gapMinutes} minutes`] : []),
+    `Title: ${reservation.Designation}`,
+    `Persons: ${persons}`,
+  ]);
+  return session.prompt((context) => confirm(
+    { message: "Book this additional time? (Esc to go back)", default: false },
+    context
+  ));
 }
 
 export async function confirmCancel(session: PromptSession, reservation: Reservation): Promise<PromptResult<boolean>> {

@@ -40,14 +40,16 @@ On the first start, Chromium opens so that you can sign in with your FHNW accoun
 The main menu lets you:
 
 - **Reserve a room:** choose a campus, date, start time, and duration; then select an available room and confirm the reservation.
-- **My reservations:** view upcoming reservations and cancel a reservation only when the FHNW service marks it as cancellable.
+- **My reservations:** view ongoing and upcoming reservations, extend one when the room is available, or cancel it when the FHNW service marks it as cancellable.
 - **Share today's & tomorrow's bookings:** post your confirmed bookings for today and tomorrow into the Teams chat again, for example when the original message has scrolled out of sight.
 - **Notification settings:** set a Microsoft Teams webhook and contacts so your group is told about new bookings.
 - **Exit:** close the application.
 
 Use **Back** in selection lists or **Esc** in text fields to return to the previous step. Enter keeps the shown value; typing a new value replaces it.
 
-Creating and cancelling reservations changes real FHNW data. The application asks for confirmation before either action.
+To extend a reservation, select it under **My reservations**, choose **Extend reservation**, then choose **Before** or **After**. The application checks the room and shows the longest available additional duration, up to 16 hours. Enter a shorter duration if wanted, then confirm. An extension creates a separate reservation with the same title and number of persons. If the original booking ends between quarter hours, an extension after it starts at the next quarter hour; the confirmation shows the resulting gap.
+
+Creating, extending, and cancelling reservations changes real FHNW data. The application asks for confirmation before each action.
 
 ## Booking notifications (Microsoft Teams)
 
@@ -56,7 +58,7 @@ After a successful booking, the application can post the room and time into a Te
 1. In Teams, add the **Workflows** app to your group chat and create a flow from the template for posting webhook alerts to a chat. Copy the webhook URL it gives you.
 2. In the application, open **Notification settings → Set Teams webhook**, paste the URL, then use **Send test message**.
 
-Every later booking is posted automatically. To post your confirmed bookings for today and tomorrow again, use **Share today's & tomorrow's bookings** in the menu, or run `npm run share` to send them all without any prompts. If no webhook is set, or posting fails, the application instead opens a Teams chat with your saved contacts and a pre-filled message; you only press Send. Add contacts under **Notification settings → Add contact**.
+Every later booking, including an extension's additional time, is posted automatically. To post your confirmed bookings for today and tomorrow again, use **Share today's & tomorrow's bookings** in the menu, or run `npm run share` to send them all without any prompts. If no webhook is set, or posting fails, the application instead opens a Teams chat with your saved contacts and a pre-filled message; you only press Send. Add contacts under **Notification settings → Add contact**.
 
 Settings are stored per user in `notify.json` next to the session data (see below). Anyone who has the webhook URL can post into the chat, so share it only with people in that chat.
 
@@ -111,4 +113,4 @@ These files can contain authentication tokens, browser cookies, the Teams webhoo
 ## Development notes
 
 - `npm run sniff` is intended for API investigation; the obsolete `discover` script was removed because its option was not implemented.
-- The project has no automated test suite yet. After code changes, run `npm run build` at minimum.
+- After code changes, run `npm test` to build and run the automated tests.

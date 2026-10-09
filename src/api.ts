@@ -1,5 +1,6 @@
 import type { AuthState, AvailableRoom, Building, ReservationRequest, Reservation } from "./types.js";
 import { buildHeaders } from "./auth.js";
+import { SITES } from "./locations.js";
 
 const BASE = "https://eviapi.fhnw.ch/Evento/api2";
 
@@ -43,6 +44,30 @@ export async function fetchAvailableRooms(
   if (!res.ok) throw new Error(`Failed to fetch rooms: ${res.status}`);
   const rooms = await res.json() as AvailableRoom[];
   return rooms.filter((r) => r.IsBookable && r.IsAvailable);
+}
+
+/** The reservation payload has no campus ID, so locate its room with a free adjacent slice. */
+export async function findAvailableRoomSite(
+  auth: AuthState,
+  roomId: number,
+  fromUnix: number,
+  toUnix: number
+): Promise<number | null> {
+  for (const site of SITES) {
+    if (await isRoomAvailable(auth, site.id, roomId, fromUnix, toUnix)) return site.id;
+  }
+  return null;
+}
+
+export async function isRoomAvailable(
+  auth: AuthState,
+  siteId: number,
+  roomId: number,
+  fromUnix: number,
+  toUnix: number
+): Promise<boolean> {
+  const rooms = await fetchAvailableRooms(auth, siteId, fromUnix, toUnix);
+  return rooms.some((room) => room.RoomId === roomId);
 }
 
 export async function createReservation(

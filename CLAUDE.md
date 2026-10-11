@@ -20,7 +20,7 @@ npm run sniff      # dev tool: record Evento API traffic from raum.fhnw.ch
 npm run build && npm link && roomreserve   # try the packaged CLI
 ```
 
-There is no linter and no test suite, so there is no single-test command. `npm run build` is the verification step after every change. Never smoke-test by creating or cancelling reservations, because they hit the live FHNW service. The same goes for `npm run share`, "Send test message" and any booking with a webhook configured: they post into a real Teams group chat. Test `src/notify.ts` against a local HTTP server, with `HOME` pointed at a temporary folder so the real `notify.json` stays untouched.
+`npm test` builds and runs the `node --test` files in `test/`. To try a feature end to end, run the CLI in test mode (`npm run start:test`, `--test`/`--dry-run`, or `ROOMRESERVE_TEST_MODE=1`): `src/test-mode.ts` fakes login, the Evento API and Teams, and logs mutations to `test-mode.log`. New network calls must check `isTestMode()` too. Never smoke-test by creating or cancelling reservations, because they hit the live FHNW service. The same goes for `npm run share`, "Send test message" and any booking with a webhook configured: they post into a real Teams group chat. Test `src/notify.ts` against a local HTTP server, with `HOME` pointed at a temporary folder so the real `notify.json` stays untouched.
 
 ## Where AGENTS.md is out of date
 

@@ -6,6 +6,7 @@ import { validateContactEmail, validateWebhookUrl } from "./notify.js";
 import type { PromptResult, PromptSession } from "./prompt-session.js";
 import type { AvailableRoom, BookingNotice, Contact, NotifySettings, Reservation, Site } from "./types.js";
 import { ExtensionSearch, isExtendableReservation } from "./extension.js";
+import { isTestMode, lastMockedRequest } from "./test-mode.js";
 import type { ExtensionDirection, ExtensionRange } from "./extension.js";
 
 type Action = "reserve" | "my-reservations" | "share" | "notifications" | "exit";
@@ -64,9 +65,16 @@ type SelectConfig<Value> = {
 export function showStep(title: string, context: string[] = []): void {
   if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[H");
   console.log("\n  FHNW Room Reservator\n  ────────────────────");
+  if (isTestMode()) showTestModeBanner();
   console.log(`\n  ${title}`);
   for (const line of context) console.log(`  ${line}`);
   console.log();
+}
+
+export function showTestModeBanner(): void {
+  console.log("  TEST MODE: nothing is sent to FHNW or Teams");
+  const last = lastMockedRequest();
+  if (last) console.log(`  Would have sent: ${last.length > 160 ? `${last.slice(0, 157)}...` : last}`);
 }
 
 export function formatPeriod(fromUnix: number, toUnix: number): string {

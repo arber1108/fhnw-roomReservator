@@ -34,6 +34,7 @@ import {
   selectBookingsToShare,
   showStep,
   showResult,
+  showTestModeBanner,
   waitForMainMenu,
 } from "./ui.js";
 import {
@@ -47,6 +48,7 @@ import {
 import { PromptSession, PromptInterruptedError } from "./prompt-session.js";
 import { previousReservationStep } from "./reservation-navigation.js";
 import { ExtensionSearch, findMaximumExtension } from "./extension.js";
+import { isTestMode, TEST_LOG_FILE } from "./test-mode.js";
 import type { ReservationStep } from "./reservation-navigation.js";
 import type { AuthState, AvailableRoom, BookingNotice, Reservation, Site } from "./types.js";
 import type { TimeRange } from "./ui.js";
@@ -583,6 +585,10 @@ async function shareBookingsFlow(session: PromptSession, auth: AuthState, pickBo
 
 async function main() {
   console.log("\n  FHNW Room Reservator\n  ────────────────────\n");
+  if (isTestMode()) {
+    showTestModeBanner();
+    console.log(`  Mocked requests are logged to ${TEST_LOG_FILE}\n`);
+  }
 
   if (process.argv.includes("--login")) {
     await authenticate(true);

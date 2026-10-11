@@ -69,6 +69,7 @@ Run these commands from the repository root.
 | Command | Purpose |
 | --- | --- |
 | `npm start` | Start the interactive application from TypeScript. |
+| `npm run start:test` | Start in test mode: no requests reach FHNW or Teams (see below). |
 | `npm run login` | Open the browser login flow and refresh the saved sign-in session. |
 | `npm run dev` | Start the application in watch mode for development. |
 | `npm run build` | Type-check and compile the application to `dist/`. |
@@ -76,6 +77,12 @@ Run these commands from the repository root.
 | `npm run sniff` | Developer tool: open the FHNW room website and record Evento API traffic for endpoint investigation. |
 
 In PowerShell environments where `npm` is blocked, replace `npm` with `npm.cmd` (for example, `npm.cmd run build`).
+
+### Test mode
+
+Use test mode to try the application, or a feature you are building, without changing real data. Start it with `npm run start:test`, or add `--test` (alias `--dry-run`) to any command, for example `npx tsx src/index.ts --test --share`. Setting the environment variable `ROOMRESERVE_TEST_MODE=1` has the same effect.
+
+In test mode the application skips the browser login and answers every Evento API call from fake rooms and reservations kept in memory. Bookings, extensions and cancellations only change that fake data. Teams messages, opened chat links and notification settings are not sent or saved. Each request that would have changed something is shown at the top of the screen and appended to `test-mode.log` in the data folder.
 
 `npm run sniff` can capture request headers and personal reservation data. Treat its output as sensitive and do not share or commit it.
 

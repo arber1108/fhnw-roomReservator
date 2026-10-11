@@ -1,6 +1,7 @@
 import type { AuthState, AvailableRoom, Building, ReservationRequest, Reservation } from "./types.js";
 import { buildHeaders } from "./auth.js";
 import { SITES } from "./locations.js";
+import { isTestMode, mockEventoFetch } from "./test-mode.js";
 
 const BASE = "https://eviapi.fhnw.ch/Evento/api2";
 
@@ -17,7 +18,8 @@ function getPersonId(auth: AuthState): string | null {
 
 async function apiFetch(auth: AuthState, path: string, init?: RequestInit): Promise<Response> {
   const headers = buildHeaders(auth);
-  const response = await fetch(`${BASE}${path}`, {
+  const send = isTestMode() ? mockEventoFetch : fetch;
+  const response = await send(`${BASE}${path}`, {
     ...init,
     headers: { ...headers, ...init?.headers },
   });

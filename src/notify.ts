@@ -3,12 +3,18 @@ import * as path from "path";
 import { spawn } from "child_process";
 import dayjs from "dayjs";
 import { DATA_DIR, ensureDataDir } from "./paths.js";
+import { isTestMode, loadMockNotifySettings, logMockedRequest, saveMockNotifySettings } from "./test-mode.js";
 import type { BookingNotice, Contact, NotifySettings } from "./types.js";
 
 const SETTINGS_FILE = path.join(DATA_DIR, "notify.json");
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function loadNotifySettings(): NotifySettings {
+  if (isTestMode()) return loadMockNotifySettings(readNotifySettings);
+  return readNotifySettings();
+}
+
+function readNotifySettings(): NotifySettings {
   if (!fs.existsSync(SETTINGS_FILE)) return { contacts: [] };
   try {
     const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8")) as Partial<NotifySettings>;
@@ -20,6 +26,7 @@ export function loadNotifySettings(): NotifySettings {
 }
 
 export function saveNotifySettings(settings: NotifySettings): void {
+  if (isTestMode()) return saveMockNotifySettings(settings);
   ensureDataDir();
   // Anyone holding the webhook URL can post into the chat, so keep the file owner-only.
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), { mode: 0o600 });
@@ -85,6 +92,10 @@ function buildAdaptiveCardMessage(title: string, sections: string[][]) {
 }
 
 export async function postToTeams(webhookUrl: string, title: string, sections: string[][]): Promise<void> {
+  if (isTestMode()) {
+    // The webhook URL is a secret, so the log names only the message.
+    return logMockedRequest("POST Teams webhook", { title, sections });
+  }
   const res = await fetch(webhookUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -102,6 +113,10 @@ export function buildTeamsChatLink(emails: string[], message: string): string {
 }
 
 export function openUrl(url: string): Promise<void> {
+  if (isTestMode()) {
+    logMockedRequest(`OPEN ${url}`);
+    return Promise.resolve();
+  }
   // rundll32 avoids cmd.exe, which would split the URL at every "&".
   const [command, args]: [string, string[]] =
     process.platform === "darwin"

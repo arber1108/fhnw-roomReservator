@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 import * as fs from "fs";
 import * as path from "path";
 import { DATA_DIR, ensureDataDir } from "./paths.js";
+import { isTestMode, mockAuthState } from "./test-mode.js";
 import type { AuthState } from "./types.js";
 
 const AUTH_FILE = path.join(DATA_DIR, "auth.json");
@@ -109,6 +110,7 @@ async function loginWithBrowser(forceInteractive: boolean): Promise<AuthState> {
 }
 
 export async function authenticate(forceLogin = false): Promise<AuthState> {
+  if (isTestMode()) return mockAuthState();
   if (!forceLogin) {
     const cached = loadCachedToken();
     if (cached) return cached;

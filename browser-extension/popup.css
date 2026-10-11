@@ -1,0 +1,147 @@
+:root {
+  --bg: #ffffff;
+  --surface: #f4f5f7;
+  --text: #1c1e21;
+  --muted: #5f6670;
+  --border: #d9dce1;
+  --accent: #1f1f1f;
+  --accent-text: #ffffff;
+  --brand: #fde70e;
+  --error: #b3261e;
+  --ok: #1e7b34;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1c1f;
+    --surface: #26282c;
+    --text: #e8eaed;
+    --muted: #a0a6ae;
+    --border: #3a3d42;
+    --accent: #fde70e;
+    --accent-text: #1c1e21;
+    --error: #f2b8b5;
+    --ok: #8fd19e;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  width: 380px;
+  min-height: 200px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 3px solid var(--brand);
+}
+
+h1 { margin: 0; font-size: 15px; }
+h2 { margin: 0 0 4px; font-size: 14px; }
+
+.account { color: var(--muted); font-size: 12px; }
+
+section, #app > section { padding: 12px 14px; }
+#app { padding: 0; }
+
+nav {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+nav button {
+  flex: 1;
+  padding: 9px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+
+nav button[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--text);
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.row { display: grid; grid-template-columns: 1.3fr 0.8fr 1fr; gap: 8px; }
+.row > label { min-width: 0; }
+
+input, select, button {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+button { cursor: pointer; background: var(--surface); }
+button:disabled { opacity: 0.6; cursor: progress; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.danger { color: var(--error); }
+form > button.primary, #signin { width: 100%; padding: 8px; }
+
+.error { color: var(--error); margin: 0 0 8px; min-height: 0; }
+.error:empty { display: none; }
+.muted { color: var(--muted); }
+.small { font-size: 11px; }
+
+.results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 0 6px;
+}
+#mine .results-head { margin-top: 0; }
+.results-head p { margin: 0; color: var(--muted); }
+#filter { width: 130px; }
+
+.list { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; }
+.list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: var(--surface);
+  border-radius: 8px;
+}
+.list li .main { min-width: 0; }
+.list li strong { display: block; }
+.list li .sub { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.list li .confirm { display: flex; gap: 6px; flex-shrink: 0; }
+.list .empty { justify-content: center; color: var(--muted); background: none; }
+
+.status-ok { color: var(--ok); }
+
+.actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+footer {
+  padding: 8px 14px 12px;
+  text-align: right;
+  font-size: 12px;
+}
+footer a { color: var(--muted); }

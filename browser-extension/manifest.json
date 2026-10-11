@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "FHNW Room Reservator",
+  "version": "0.1.0",
+  "description": "Find, book and cancel FHNW rooms from the browser toolbar.",
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_title": "FHNW Room Reservator",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "webRequest",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://eviapi.fhnw.ch/*",
+    "https://raum.fhnw.ch/*"
+  ]
+}

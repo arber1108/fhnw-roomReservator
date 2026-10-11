@@ -6,3 +6,4 @@ dist/
 !bin/roomreserve.js
 .env
 .DS_Store
+!browser-extension/**

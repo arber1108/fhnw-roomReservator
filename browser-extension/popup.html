@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>FHNW Room Reservator</title>
+  <link rel="stylesheet" href="popup.css">
+  <script type="module" src="popup.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Room Reservator</h1>
+    <span id="account" class="account"></span>
+  </header>
+
+  <section id="signed-out" hidden>
+    <p id="signin-message">Checking your FHNW sign-in…</p>
+    <button id="signin" class="primary" hidden>Sign in to FHNW</button>
+  </section>
+
+  <main id="app" hidden>
+    <nav role="tablist">
+      <button role="tab" id="tab-book" aria-selected="true">Book a room</button>
+      <button role="tab" id="tab-mine" aria-selected="false">My reservations</button>
+    </nav>
+
+    <section id="book">
+      <form id="search">
+        <label>Campus
+          <select id="campus"></select>
+        </label>
+        <div class="row">
+          <label>Date
+            <input id="date" type="date" required>
+          </label>
+          <label>Start
+            <select id="start"></select>
+          </label>
+          <label>End or duration
+            <input id="end" type="text" placeholder="14:00 or 90m" autocomplete="off" required>
+          </label>
+        </div>
+        <p id="search-error" class="error" role="alert"></p>
+        <button class="primary" type="submit">Find free rooms</button>
+      </form>
+
+      <div id="results" hidden>
+        <div class="results-head">
+          <p id="results-summary"></p>
+          <input id="filter" type="search" placeholder="Filter rooms" autocomplete="off">
+        </div>
+        <ul id="rooms" class="list"></ul>
+      </div>
+
+      <form id="details" hidden>
+        <h2>Book <span id="details-room"></span></h2>
+        <p id="details-meta" class="muted"></p>
+        <label>Title
+          <input id="title" type="text" required>
+        </label>
+        <label>Number of persons
+          <input id="persons" type="number" min="1" step="1" required>
+        </label>
+        <p id="details-error" class="error" role="alert"></p>
+        <div class="actions">
+          <button type="button" id="details-back">Back</button>
+          <button type="submit" class="primary" id="details-confirm">Confirm booking</button>
+        </div>
+        <p class="muted small">This books the room at FHNW for real.</p>
+      </form>
+
+      <div id="booked" hidden>
+        <h2>Room booked</h2>
+        <p id="booked-text"></p>
+        <div class="actions">
+          <button type="button" id="booked-another">Book another</button>
+          <button type="button" class="primary" id="booked-mine">My reservations</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="mine" hidden>
+      <div class="results-head">
+        <p id="mine-summary"></p>
+        <button type="button" id="mine-refresh">Refresh</button>
+      </div>
+      <p id="mine-error" class="error" role="alert"></p>
+      <ul id="reservations" class="list"></ul>
+    </section>
+  </main>
+
+  <footer>
+    <a href="https://raum.fhnw.ch/" target="_blank" rel="noreferrer">Open raum.fhnw.ch</a>
+  </footer>
+</body>
+</html>

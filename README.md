@@ -51,6 +51,16 @@ To extend a reservation, select it under **My reservations**, choose **Extend re
 
 Creating, extending, and cancelling reservations changes real FHNW data. The application asks for confirmation before each action.
 
+## Browser extension (Chrome, Edge, Brave)
+
+The `browser-extension/` folder holds a Chrome extension that does the everyday tasks from the toolbar: find a free room, book it, and view or cancel your upcoming reservations. It needs no Node.js and no terminal.
+
+1. Open `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
+2. Click **Load unpacked** and choose the `browser-extension` folder of this repository.
+3. Click the extension's toolbar icon. It signs in through `raum.fhnw.ch` in a background tab. If you are not signed in to FHNW yet, log in in that tab; it closes by itself afterwards.
+
+The extension talks to the same Evento API as the CLI and follows the same time rules (start in 15-minute steps; end as `HH:mm` or a duration such as `90m`). It keeps the API token in memory only, so it is gone when the browser closes. Booking and cancelling change real FHNW data; both ask for confirmation first. Extending reservations and Teams notifications are only in the CLI for now.
+
 ## Booking notifications (Microsoft Teams)
 
 After a successful booking, the application can post the room and time into a Teams group chat:

@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Lets Node load these files as ES modules for tests. Chrome ignores this file."
+}

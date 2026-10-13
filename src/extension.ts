@@ -1,4 +1,4 @@
-import type { Reservation } from "./types.js";
+import type { Occupancy, Reservation } from "./types.js";
 
 export type ExtensionDirection = "before" | "after";
 export type ExtensionRange = { fromUnix: number; toUnix: number; durationMinutes: number };
@@ -88,4 +88,25 @@ export async function findMaximumExtension(
     else unavailable = middle;
   }
   return available;
+}
+
+/** The web app supplies all occupied intervals for the requested period. */
+export function maximumExtensionFromOccupancies(
+  search: ExtensionSearch,
+  occupancies: Occupancy[]
+): number {
+  const blocked = occupancies.map((occupancy) => ({
+    from: new Date(occupancy.DateTimeFrom).getTime() / 1000,
+    to: new Date(occupancy.DateTimeTo).getTime() / 1000,
+  }));
+  let maximum = 0;
+  for (let units = 1; units <= search.maxUnits; units++) {
+    const range = search.range(units);
+    if (blocked.some((interval) =>
+      !Number.isFinite(interval.from) || !Number.isFinite(interval.to) ||
+      (interval.from < range.toUnix && interval.to > range.fromUnix)
+    )) break;
+    maximum = units;
+  }
+  return maximum;
 }

@@ -167,6 +167,27 @@ export async function mockEventoFetch(url: string, init?: RequestInit): Promise<
     const from = Number(query.get("availableFrom")) * 1000;
     const to = Number(query.get("availableTo")) * 1000;
     const siteIds = (query.get("locations") ?? "").split(",").map(Number);
+    const designation = query.get("designations");
+    if (designation !== null) {
+      const duration = Number(query.get("timespan") ?? 0) * 1000;
+      return json(siteIds.flatMap(mockRooms).filter((room) => room.Room.includes(designation)).map((room) => {
+        const occupancies = store().filter((reservation) =>
+          reservation.ResourceId === room.RoomId && reservation.Status !== "Storniert"
+        ).flatMap((reservation) => reservation.Occupancies ?? []);
+        const blocked = occupancies.map((occupancy) => ({
+          from: new Date(occupancy.DateTimeFrom).getTime(),
+          to: new Date(occupancy.DateTimeTo).getTime(),
+        })).filter((interval) => interval.from < to && interval.to > from)
+          .sort((a, b) => a.from - b.from);
+        let freeFrom = from;
+        const available = blocked.some((interval) => {
+          if (interval.from - freeFrom >= duration) return true;
+          freeFrom = Math.max(freeFrom, interval.to);
+          return false;
+        }) || to - freeFrom >= duration;
+        return { ...room, IsAvailable: available, Occupancies: occupancies };
+      }).filter((room) => query.get("availableOnly") !== "1" || room.IsAvailable));
+    }
     const busy = new Set(store().filter((r) => overlaps(r, from, to)).map((r) => r.ResourceId));
     return json(siteIds.flatMap(mockRooms).filter((room) => !busy.has(room.RoomId)));
   }

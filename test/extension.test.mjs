@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { findAvailableRoomSite, isRoomAvailable } from "../dist/api.js";
-import { ExtensionSearch, findMaximumExtension } from "../dist/extension.js";
+import { fetchRoomSchedule } from "../dist/api.js";
+import { ExtensionSearch, maximumExtensionFromOccupancies } from "../dist/extension.js";
 import { myReservationsFlow } from "../dist/index.js";
 
 const auth = { clxAuthorization: "test", expiresAt: Infinity };
@@ -56,34 +56,81 @@ test("extension ranges use real elapsed time across midnight and daylight saving
   }
 });
 
-test("binary search finds the last contiguous available range", async () => {
+test("occupancies bound the contiguous extension at the next booking", () => {
   const booking = reservation("2027-01-15T09:00:00Z", "2027-01-15T10:00:00Z");
   const search = ExtensionSearch.forReservation(booking, "after", Date.parse("2027-01-15T08:00:00Z"));
-  const checked = [];
-  const maximum = await findMaximumExtension(search, async (range) => {
-    checked.push(range.durationMinutes);
-    return range.durationMinutes <= 65;
-  });
+  const maximum = maximumExtensionFromOccupancies(search, [
+    { DateTimeFrom: "2027-01-15T09:00:00Z", DateTimeTo: "2027-01-15T10:00:00Z" },
+    { DateTimeFrom: "2027-01-15T11:05:00Z", DateTimeTo: "2027-01-15T12:00:00Z" },
+  ]);
   assert.equal(maximum, 13);
-  assert.ok(checked.length < 10);
+  assert.equal(maximumExtensionFromOccupancies(search, [
+    { DateTimeFrom: "2027-01-15T10:00:00Z", DateTimeTo: "2027-01-15T10:30:00Z" },
+  ]), 0);
 });
 
-test("API probes known campuses for the exact room", async () => {
+test("schedule calculation handles before and across midnight", () => {
+  const booking = reservation("2027-01-16T00:05:00Z", "2027-01-16T01:00:00Z");
+  const before = ExtensionSearch.forReservation(booking, "before", Date.parse("2027-01-15T21:00:00Z"));
+  assert.ok(before);
+  assert.equal(maximumExtensionFromOccupancies(before, [
+    { DateTimeFrom: "2027-01-15T23:00:00Z", DateTimeTo: "2027-01-15T23:30:00Z" },
+  ]), 3); // 23:30–00:05; the next step would overlap the earlier booking.
+
+  const after = ExtensionSearch.forReservation(booking, "after", Date.parse("2027-01-15T21:00:00Z"));
+  assert.ok(after);
+  assert.equal(maximumExtensionFromOccupancies(after, [
+    { DateTimeFrom: "2027-01-16T01:20:00Z", DateTimeTo: "2027-01-16T02:00:00Z" },
+  ]), 4);
+});
+
+test("targeted schedule query probes campuses and verifies the room ID", async () => {
   const originalFetch = global.fetch;
   const sites = [];
   global.fetch = async (url) => {
     const parsed = new URL(url);
     sites.push(Number(parsed.searchParams.get("locations")));
     assert.equal(parsed.searchParams.get("availableOnly"), "1");
+    assert.equal(parsed.searchParams.get("designations"), "A101");
+    assert.equal(parsed.searchParams.get("timespan"), "300");
     return new Response(JSON.stringify(sites.length === 2
-      ? [{ RoomId: 7, IsBookable: true, IsAvailable: true }]
+      ? [{ RoomId: 8, IsBookable: true }, { RoomId: 7, IsBookable: true, Occupancies: [] }]
       : []), { status: 200 });
   };
   try {
-    const site = await findAvailableRoomSite(auth, 7, 1_800_000_000, 1_800_000_300);
-    assert.equal(site, 211);
+    const found = await fetchRoomSchedule(auth, 7, "A101", 1_800_000_000, 1_800_003_600);
+    assert.equal(found.siteId, 211);
+    assert.equal(found.room.RoomId, 7);
     assert.deepEqual(sites, [101, 211]);
-    assert.equal(await isRoomAvailable(auth, 211, 8, 1_800_000_000, 1_800_000_300), false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("schedule queries stay within local days across midnight", async () => {
+  const originalFetch = global.fetch;
+  const start = Math.floor(new Date(2027, 0, 15, 23, 30).getTime() / 1000);
+  const end = Math.floor(new Date(2027, 0, 16, 1, 30).getTime() / 1000);
+  const requestedDays = [];
+  global.fetch = async (url) => {
+    const parsed = new URL(url);
+    const from = Number(parsed.searchParams.get("availableFrom"));
+    const to = Number(parsed.searchParams.get("availableTo"));
+    assert.equal(new Date(from * 1000).getHours(), 0);
+    assert.equal(new Date((to + 1) * 1000).getHours(), 0);
+    assert.equal(new Date(to * 1000).getDate(), new Date(from * 1000).getDate());
+    requestedDays.push(new Date(from * 1000).getDate());
+    return new Response(JSON.stringify(requestedDays.length === 1 ? [] : [
+      { RoomId: 7, IsBookable: true, Occupancies: [] },
+    ]), { status: 200 });
+  };
+  try {
+    const found = await fetchRoomSchedule(auth, 7, "A101", start, end);
+    assert.deepEqual(requestedDays, [15, 16]);
+    assert.equal(found?.siteId, 101);
+    assert.equal(found?.room.Occupancies.length, 1);
+    assert.equal(new Date(found.room.Occupancies[0].DateTimeTo).getTime(),
+      new Date(2027, 0, 16).getTime());
   } finally {
     global.fetch = originalFetch;
   }
@@ -96,7 +143,10 @@ function flowDependencies(booking, overrides = {}) {
     selectReservation: async () => ++selections === 1 ? value(booking) : back,
     selectReservationAction: async () => value("extend"),
     selectExtensionDirection: async () => value("after"),
-    findAvailableRoomSite: async () => 101,
+    fetchRoomSchedule: async () => ({ siteId: 101, room: { Occupancies: [
+      booking.Occupancies[0],
+      { DateTimeFrom: "2027-01-15T10:15:00Z", DateTimeTo: "2027-01-15T11:00:00Z" },
+    ] } }),
     isRoomAvailable: async (_auth, _site, _room, from, to) => to - from <= 15 * 60,
     promptExtensionDuration: async () => value(2),
     promptExtensionPersons: async () => { throw new Error("Unexpected persons prompt"); },
@@ -114,8 +164,10 @@ test("confirmed extension rechecks availability and books once", async () => {
   let creates = 0;
   let notifications = 0;
   let finalChecks = 0;
+  let availabilityChecks = 0;
   const deps = flowDependencies(booking, {
     isRoomAvailable: async (_auth, _site, _room, from, to) => {
+      availabilityChecks++;
       if (to - from === 10 * 60) finalChecks++;
       return to - from <= 15 * 60;
     },
@@ -135,6 +187,25 @@ test("confirmed extension rechecks availability and books once", async () => {
   assert.equal(creates, 1);
   assert.equal(notifications, 1);
   assert.ok(finalChecks >= 1);
+  assert.equal(availabilityChecks, 2);
+});
+
+test("API availability limits the schedule when other booking rules apply", async () => {
+  const booking = reservation("2027-01-15T09:00:00Z", "2027-01-15T10:00:00Z");
+  let checks = 0;
+  const deps = flowDependencies(booking, {
+    fetchRoomSchedule: async () => ({ siteId: 101, room: { Occupancies: [booking.Occupancies[0]] } }),
+    isRoomAvailable: async (_auth, _site, _room, from, to) => {
+      checks++;
+      return to - from <= 15 * 60;
+    },
+    promptExtensionDuration: async (_session, _reservation, _search, maximum) => {
+      assert.equal(maximum, 3);
+      return value(2);
+    },
+  });
+  assert.equal(await myReservationsFlow({}, auth, deps), auth);
+  assert.ok(checks > 2); // The short probing fallback ran.
 });
 
 test("back, declined confirmation and changed availability never book", async () => {

@@ -2,7 +2,7 @@ import { authenticate } from "./auth.js";
 import dayjs from "dayjs";
 import {
   fetchAvailableRooms, createReservation, fetchMyReservations, cancelReservation,
-  findAvailableRoomSite, isRoomAvailable,
+  fetchRoomSchedule, isRoomAvailable,
 } from "./api.js";
 import {
   selectAction,
@@ -47,7 +47,7 @@ import {
 } from "./notify.js";
 import { PromptSession, PromptInterruptedError } from "./prompt-session.js";
 import { previousReservationStep } from "./reservation-navigation.js";
-import { ExtensionSearch, findMaximumExtension } from "./extension.js";
+import { ExtensionSearch, findMaximumExtension, maximumExtensionFromOccupancies } from "./extension.js";
 import { isTestMode, TEST_LOG_FILE } from "./test-mode.js";
 import type { ReservationStep } from "./reservation-navigation.js";
 import type { AuthState, AvailableRoom, BookingNotice, Reservation, Site } from "./types.js";
@@ -86,7 +86,7 @@ export const cancellationFlowDependencies = {
   promptExtensionDuration,
   promptExtensionPersons,
   confirmExtension,
-  findAvailableRoomSite,
+  fetchRoomSchedule,
   isRoomAvailable,
   createReservation,
   notifyBooking,
@@ -447,23 +447,38 @@ async function extendReservationFlow(
 
     showStep("Checking extension", [`Room: ${reservation.Resource}`]);
     console.log("  Checking available time...");
-    const adjacent = search.range(1);
-    const located = await withAuth(auth, (a) => deps.findAvailableRoomSite(
-      a, reservation.ResourceId, adjacent.fromUnix, adjacent.toUnix
+    const searchRange = search.range(search.maxUnits);
+    const located = await withAuth(auth, (a) => deps.fetchRoomSchedule(
+      a, reservation.ResourceId, reservation.Resource,
+      searchRange.fromUnix, searchRange.toUnix
     ));
     auth = located.auth;
     if (located.result === null) {
       await deps.showResult(session, "Extension unavailable", ["No bookable time immediately next to this reservation."]);
       return { auth, back: false };
     }
-    const siteId = located.result;
-    const maximum = await findMaximumExtension(search, async (range) => {
+    const siteId = located.result.siteId;
+    let maximum = maximumExtensionFromOccupancies(search, located.result.room.Occupancies);
+    if (maximum === 0) {
+      await deps.showResult(session, "Extension unavailable", ["No bookable time immediately next to this reservation."]);
+      return { auth, back: false };
+    }
+    const checkRange = async (range: ReturnType<ExtensionSearch["range"]>): Promise<boolean> => {
       const checked = await withAuth(auth, (a) => deps.isRoomAvailable(
         a, siteId, reservation.ResourceId, range.fromUnix, range.toUnix
       ));
       auth = checked.auth;
       return checked.result;
-    });
+    };
+    // Occupancies describe reservations, but opening-hour restrictions may
+    // also limit the bookable period. Fall back only when that differs.
+    if (!await checkRange(search.range(maximum))) {
+      if (!await checkRange(search.range(1))) {
+        await deps.showResult(session, "Extension unavailable", ["No bookable time immediately next to this reservation."]);
+        return { auth, back: false };
+      }
+      maximum = await findMaximumExtension(search, checkRange);
+    }
 
     while (true) {
       const selectedDuration = await deps.promptExtensionDuration(session, reservation, search, maximum);

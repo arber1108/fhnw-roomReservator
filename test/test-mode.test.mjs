@@ -53,6 +53,9 @@ test("booking, listing and cancelling only change mock data", async () => {
   const busy = await api.fetchAvailableRooms(auth, 101, start, start + hour);
   assert.ok(!busy.some((r) => r.RoomId === room.RoomId));
   assert.equal(await api.findAvailableRoomSite(auth, room.RoomId, start + hour, start + 2 * hour), 101);
+  const schedule = await api.fetchRoomSchedule(auth, room.RoomId, room.Room, start, start + 2 * hour);
+  assert.equal(schedule?.siteId, 101);
+  assert.ok(schedule?.room.Occupancies.some((o) => new Date(o.DateTimeFrom).getTime() === start * 1000));
 
   const mine = await api.fetchMyReservations(auth);
   assert.ok(mine.some((r) => r.ReservationId === created.ReservationId));

@@ -47,7 +47,7 @@ The main menu lets you:
 
 Use **Back** in selection lists or **Esc** in text fields to return to the previous step. Enter keeps the shown value; typing a new value replaces it.
 
-To extend a reservation, select it under **My reservations**, choose **Extend reservation**, then choose **Before** or **After**. The application checks the room and shows the longest available additional duration, up to 16 hours. Enter a shorter duration if wanted, then confirm. An extension creates a separate reservation with the same title and number of persons. If the original booking ends between quarter hours, an extension after it starts at the next quarter hour; the confirmation shows the resulting gap.
+To extend a reservation, select it under **My reservations**, choose **Extend reservation**, then choose **Before** or **After**. The application fetches the selected room's occupancy schedule and shows the longest available additional duration, up to 16 hours. Enter a shorter duration if wanted, then confirm. An extension creates a separate reservation with the same title and number of persons. If the original booking ends between quarter hours, an extension after it starts at the next quarter hour; the confirmation shows the resulting gap.
 
 Creating, extending, and cancelling reservations changes real FHNW data. The application asks for confirmation before each action.
 

@@ -72,6 +72,63 @@ export async function isRoomAvailable(
   return rooms.some((room) => room.RoomId === roomId);
 }
 
+/** Fetch the room's occupancy timeline using the web app's designation filter. */
+export async function fetchRoomSchedule(
+  auth: AuthState,
+  roomId: number,
+  designation: string,
+  fromUnix: number,
+  toUnix: number
+): Promise<{ siteId: number; room: AvailableRoom } | null> {
+  if (fromUnix >= toUnix) throw new RangeError("Invalid room schedule range");
+
+  // Evento's timeline endpoint returns 500 when a request crosses midnight.
+  // Ask for each local calendar day, as the FHNW web app does.
+  const days: Array<{ fromUnix: number; toUnix: number }> = [];
+  const day = new Date(fromUnix * 1000);
+  day.setHours(0, 0, 0, 0);
+  while (day.getTime() < toUnix * 1000) {
+    const start = day.getTime();
+    day.setDate(day.getDate() + 1);
+    days.push({ fromUnix: start / 1000, toUnix: day.getTime() / 1000 - 1 });
+  }
+
+  for (const site of SITES) {
+    const schedules = await Promise.all(days.map(async (dayRange) => {
+      const params = new URLSearchParams({
+        availableFrom: String(dayRange.fromUnix),
+        availableTo: String(dayRange.toUnix),
+        availableOnly: "1",
+        locations: String(site.id),
+        designations: designation,
+        timespan: "300", // The shortest extension is five minutes.
+      });
+      const res = await apiFetch(auth, `/RoomReservation/Rooms/Available/?${params}`);
+      if (!res.ok) throw new Error(`Failed to fetch room schedule (${res.status})`);
+      const rooms = await res.json() as AvailableRoom[];
+      return rooms.find((candidate) => candidate.RoomId === roomId && candidate.IsBookable) ?? null;
+    }));
+    const room = schedules.find((candidate) => candidate !== null);
+    if (!room) continue;
+    if (schedules.some((candidate) => candidate && !Array.isArray(candidate.Occupancies))) {
+      throw new Error("Room schedule has no occupancy data");
+    }
+    return {
+      siteId: site.id,
+      room: {
+        ...room,
+        Occupancies: schedules.flatMap((candidate, index) => candidate?.Occupancies ?? [{
+          DateTimeFrom: new Date(days[index]!.fromUnix * 1000).toISOString(),
+          DateTimeTo: new Date((days[index]!.toUnix + 1) * 1000).toISOString(),
+          Designation: null,
+          Type: 10,
+        }]),
+      },
+    };
+  }
+  return null;
+}
+
 export async function createReservation(
   auth: AuthState,
   roomId: number,
